@@ -335,17 +335,18 @@ class LcLayout:
             ptap = self.shapes[l_pplus].insert(p)
             ptap.set_property('net', gnd_net)
 
-    def _08_03_connect_well_taps(self):
+    def _08_03_connect_well_taps(self, gnd_net, vdd_net):
         logger.debug("Connect well-taps.")
         router = DefaultRouter(
             graph_router=self.router,
             debug_routing_graph=self.debug_routing_graph,
-            tech=self.tech
+            tech=self.tech,
         )
 
         routing_trees = router.route(self.shapes, io_pins=[],
                                      transistor_layouts=dict(),
                                      routing_terminal_debug_layers=self._routing_terminal_debug_layers,
+                                     routing_nets={gnd_net, vdd_net},
                                      top_cell=self.top_cell)
 
     def _09_post_process(self):
@@ -582,8 +583,8 @@ class LcLayout:
         self._05_draw_cell_template()
         self._06_route()
         self._08_draw_routes()
-        # self._08_2_insert_well_taps(vdd_net='vdd', gnd_net='gnd')  # TODO: No hardcoded nets.
-        # self._08_03_connect_well_taps()
+        self._08_2_insert_well_taps(vdd_net=self.SUPPLY_VOLTAGE_NET, gnd_net=self.GND_NET)
+        self._08_03_connect_well_taps(vdd_net=self.SUPPLY_VOLTAGE_NET, gnd_net=self.GND_NET)
         self._09_post_process()
 
         return self.top_cell, self._pin_shapes

@@ -80,7 +80,7 @@ def _draw_routing_tree(shapes: Dict[str, pya.Shapes],
                 via = pya.Box(pya.Point(x1 - w, y1 - w),
                               pya.Point(x1 + w, y1 + w))
                 via_shape = shapes[via_layer].insert(via)
-                #via_shape.set_property('net', signal_name)
+                # via_shape.set_property('net', signal_name)
 
                 # Ensure minimum via enclosure.
                 if not debug_routing_graph:
@@ -136,17 +136,29 @@ class DefaultRouter():
     def route(self, shapes: Dict[str, db.Shapes],
               io_pins: List[str],
               transistor_layouts: Dict[Transistor, TransistorLayout],
+              routing_nets: Set[str] = None,
               routing_terminal_debug_layers: Dict[str, str] = None,
               top_cell: db.Cell = None
               ):
+        """
+        :param shapes:
+        :param io_pins: Create accessible metal shapes for this nets.
+        :param transistor_layouts:
+        :param routing_terminal_debug_layers:
+        :param routing_nets: Route this nets only. When left `None` all nets will be routed.
+        :param top_cell: Layout cell where routes should be drawn.
+        :return: Returns the routing trees for each signal.
+        """
         routing_trees = self._06_route(shapes, io_pins, transistor_layouts,
-                       routing_terminal_debug_layers, top_cell)
+                                       routing_nets,
+                                       routing_terminal_debug_layers, top_cell)
         self._08_draw_routes(shapes, routing_trees)
         return routing_trees
 
     def _06_route(self, shapes: Dict[str, db.Shapes],
                   io_pins: List[str],
                   transistor_layouts: Dict[Transistor, TransistorLayout],
+                  routing_nets: Set[str] = None,
                   routing_terminal_debug_layers: Dict[str, str] = None,
                   top_cell: db.Cell = None):
         """
@@ -155,6 +167,7 @@ class DefaultRouter():
         :param io_pins: Create accessible metal shapes for this nets.
         :param transistor_layouts:
         :param routing_terminal_debug_layers:
+        :param routing_nets: Route this nets only. When left `None` all nets will be routed.
         :param top_cell: Layout cell where routes should be drawn.
         :return: Returns the routing trees for each signal.
         """
@@ -198,6 +211,8 @@ class DefaultRouter():
         # It can happen that there is none due to spacing issues.
         # First find all net names in the layout.
         all_net_names = {s.property('net') for _, _shapes in shapes.items() for s in _shapes.each()}
+        if routing_nets is not None:
+            all_net_names &= routing_nets
         all_net_names -= {None}
 
         error = False
@@ -310,13 +325,18 @@ class DefaultRouter():
 
             assert nx.is_connected(graph)
 
+            if routing_nets is not None:
+                # Route only selected nets.
+                virtual_terminal_nodes = {net: virtual_terminal_nodes[net] for net in  routing_nets}
+
+
             # Invoke router and store result.
             routing_trees = self.router.route(graph,
-                                                    signals=virtual_terminal_nodes,
-                                                    reserved_nodes=reserved_nodes,
-                                                    node_conflict=conflicts,
-                                                    is_virtual_node_fn=_is_virtual_node_fn
-                                                    )
+                                              signals=virtual_terminal_nodes,
+                                              reserved_nodes=reserved_nodes,
+                                              node_conflict=conflicts,
+                                              is_virtual_node_fn=_is_virtual_node_fn
+                                              )
 
             # TODO: Sanity check on result.
             return routing_trees
@@ -331,7 +351,7 @@ class DefaultRouter():
                                    rt, self.tech, self.debug_routing_graph)
 
             # Merge the polygons on all layers.
-            #_merge_all_layers(shapes)
+            # _merge_all_layers(shapes)
 
 
 def _merge_all_layers(shapes: Dict[str, db.Shapes]):
