@@ -5,6 +5,7 @@ from .graphrouter.signal_router import DijkstraRouter, ApproxSteinerTreeRouter
 from collections import Counter, defaultdict
 from .routing_graph import *
 from . import tech_util
+from .lvs import lvs
 import networkx as nx
 from itertools import chain
 import numpy
@@ -176,6 +177,77 @@ class DefaultRouter():
 
         cell_width = db.Region(shapes[l_abutment_box]).bbox().width()
 
+        # Find all net names in the layout.
+        all_net_names = {s.property('net') for _, _shapes in shapes.items() for s in _shapes.each()}
+        if routing_nets is not None:
+            all_net_names &= routing_nets
+        all_net_names -= {None}
+
+        # Transform the 'net' properties into text labels such that the LVS
+        # algorithm picks the right net names.
+        net_labels = []
+        for layer_name, _shapes in shapes.items():
+            for shape in _shapes.each():
+                assert isinstance(shape, db.Shape)
+                net_name = shape.property('net')
+                if net_name is not None:
+                    p = shape.polygon
+                    assert isinstance(p, db.Polygon)
+                    p1 = next(p.each_point_hull())
+                    label = db.Text(net_name, p1.x, p1.y)
+                    net_labels.append((layer_name, label))
+
+        for layer_name, label in net_labels:
+            shapes[layer_name].insert(label)
+
+        # Find existing connectivity in the layout.
+        # Extract existing nets and shapes that belong to them.
+        layout: db.Layout = top_cell.layout()
+        l2n: db.LayoutToNetlist = lvs.extract_l2n(layout, top_cell)
+        netlist_extracted: db.Netlist = l2n.netlist()
+        top_circuit: db.Circuit = netlist_extracted.circuit_by_name(top_cell.name)
+
+        nets_extracted = list(top_circuit.each_net())
+
+        # Store shapes of each net as (layer_name, shape) tuples.
+        shapes_by_net: Dict[db.Net, List[Tuple[str, db.Polygon]]] = dict()
+        net_by_shape: Dict[Tuple[str, db.Polygon], db.Net] = dict()
+        for net in nets_extracted:
+            shapes_of_net = list()
+            for layer_name in shapes.keys():
+                r = l2n.layer_by_name(layer_name)
+                if r is not None:
+                    # net_shapes = db.Shapes()  # Sink for shapes.
+                    # l2n.shapes_of_net(net, r, True, net_shapes, 1)  # Get with properties.
+                    # for s in net_shapes.each():
+                    #     print("net shape", s)
+                    net_shapes = l2n.shapes_of_net(net, r, True)
+                    assert isinstance(net_shapes, db.Region)
+                    # print(f"Shapes on layer {layer_name}, net {net}: {net_shapes}")
+                    for s in net_shapes.each():
+                        # print(layout.properties(s.prop_id))
+                        assert isinstance(s, db.Polygon)
+                        shapes_of_net.append((layer_name, s))
+                        net_by_shape[(layer_name, s)] = net
+                else:
+                    logger.debug(f"No such hierarchical layer '{layer_name}'.")
+
+            shapes_by_net[net] = shapes_of_net
+
+        # For each net find unconnected sets of terminal shapes.
+        # Structure: {net name: {{shapes that are already connected}, ...}}
+        pin_shapes_by_net: Dict[str, List[List[Tuple[str, db.Polygon]]]] = dict()
+        for net, net_shapes in shapes_by_net.items():
+            if net.name is not None:
+                if net.name not in pin_shapes_by_net:
+                    pin_shapes_by_net[net.name] = list()
+                pin_shapes_by_net[net.name].append(net_shapes)
+
+        for net, pins in pin_shapes_by_net.items():
+            logger.debug(f"Number of pin shapes of net {net}: {len(pins)}")
+            # if len(pins) == 1:
+            #     logger.debug(f"Net is already routed: {net}")
+
         # Construct two dimensional grid which defines the routing graph on a single layer.
         grid = Grid2D((tech.grid_offset_x, tech.grid_offset_y),
                       (
@@ -195,7 +267,7 @@ class DefaultRouter():
         # Remove pre-routed edges from graph.
         remove_existing_routing_edges(graph, shapes, tech)
 
-        # Create a list of terminal areas: [(net, layer, [terminal, ...]), ...]
+        # Create a list of terminal areas: [(net, [(layer, terminal_coord), ...]), ...]
         terminals_by_net = extract_terminal_nodes(graph, shapes, tech)
 
         # Embed transistor terminal nodes in to routing graph.
@@ -204,17 +276,11 @@ class DefaultRouter():
         # Remove terminals of nets with only one terminal. They need not be routed.
         # This can happen if a net is already connected by abutment of two transistors.
         # Count terminals of a net.
-        num_appearance = Counter(chain((net for net, _, _ in terminals_by_net), io_pins))
+        num_appearance = Counter(chain((net for net, _t in terminals_by_net), io_pins))
         terminals_by_net = [t for t in terminals_by_net if num_appearance[t[0]] > 1]
 
         # Check if each net really has a routing terminal.
         # It can happen that there is none due to spacing issues.
-        # First find all net names in the layout.
-        all_net_names = {s.property('net') for _, _shapes in shapes.items() for s in _shapes.each()}
-        if routing_nets is not None:
-            all_net_names &= routing_nets
-        all_net_names -= {None}
-
         error = False
         # Check if each net has at least a terminal.
         for net_name in all_net_names:
@@ -234,8 +300,8 @@ class DefaultRouter():
             routing_terminal_shapes = {
                 l: top_cell.shapes(routing_terminal_debug_layers[l]) for l in tech.routing_layers.keys()
             }
-            for net, layer, ts in terminals_by_net:
-                for x, y in ts:
+            for net, ts in terminals_by_net:
+                for layer, (x, y) in ts:
                     d = tech.routing_grid_pitch_x // 16
                     routing_terminal_shapes[layer].insert(pya.Box(pya.Point(x - d, y - d), pya.Point(x + d, y + d)))
 
@@ -314,8 +380,8 @@ class DefaultRouter():
             # Find routing nodes that are reserved for a net. They cannot be used to route other nets.
             # (For instance the ends of a gate stripe.)
             reserved_nodes = defaultdict(set)
-            for net, layer, terminals in terminals_by_net:
-                for p in terminals:
+            for net, pins in terminals_by_net:
+                for layer, p in pins:
                     n = layer, p
                     reserved = reserved_nodes[net]
                     reserved.add(n)
@@ -327,8 +393,7 @@ class DefaultRouter():
 
             if routing_nets is not None:
                 # Route only selected nets.
-                virtual_terminal_nodes = {net: virtual_terminal_nodes[net] for net in  routing_nets}
-
+                virtual_terminal_nodes = {net: virtual_terminal_nodes[net] for net in routing_nets}
 
             # Invoke router and store result.
             routing_trees = self.router.route(graph,

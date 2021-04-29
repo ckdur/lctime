@@ -210,7 +210,7 @@ def extract_terminal_nodes(graph: nx.Graph,
     :param graph: Routing graph.
     :param net_regions: Regions that are connected to a net: Dict[net, Dict[layer, pya.Region]]
     :param tech: module containing technology information
-    :return: list of terminals: [(net, layer, [terminal, ...]), ...]
+    :return: list of terminals: [(net, [(layer, terminal coordinates), ...]), ...]
     """
 
     routing_nodes = _get_routing_node_locations_per_layer(graph)
@@ -243,7 +243,7 @@ def extract_terminal_nodes(graph: nx.Graph,
                     d = enc + max_via_size // 2
                     routing_terminals = inside(routing_nodes[layer], terminal_region, d)
 
-                terminals_by_net.append((net, layer, routing_terminals))
+                terminals_by_net.append((net, [(layer, t) for t in routing_terminals]))
                 # Don't use terminals for normal routing
                 routing_nodes[layer] -= set(routing_terminals)
                 # TODO: need to be removed from G also. Better: construct edges in G afterwards.
@@ -314,13 +314,13 @@ def extract_terminal_nodes(graph: nx.Graph,
 
 def embed_transistor_terminal_nodes(G: nx.Graph,
                                     transistor_layouts: Dict[Transistor, TransistorLayout],
-                                    tech) -> List[Tuple[str, str, Tuple[int, int]]]:
+                                    tech) -> List[Tuple[str, List[Tuple[str, Tuple[int, int]]]]]:
     """ Embed the terminal nodes of a the transistors into the routing graph.
     Modifies `G` and `terminals_by_net`
     :param G: The routing graph.
     :param transistor_layouts: List[TransistorLayout]
     :param tech: module containing technology information
-    :return: Returns terminal nodes as a list like List[(netname, layer, coordinates)]
+    :return: Returns terminal nodes as a list like List[(netname, [(layer, coordinate), ...])]
     """
     terminals_by_net = []
     # Connect terminal nodes of transistor gates in G.
@@ -351,19 +351,19 @@ def embed_transistor_terminal_nodes(G: nx.Graph,
 
                     # TODO: weight proportional to gate width?
                     G.add_edge(t, neighbour_node, weight=1000, wire_width=tech.gate_length)
-                    coords.append((x, y))
+                    assert layer is not None
+                    coords.append((layer, (x, y)))
                 else:
                     logger.debug(f"No neighbour node for terminal with net `{net}` of transistor {transistor.name}.")
 
             if coords:
-                assert layer is not None
-                terminals_by_net.append((net, layer, coords))
+                terminals_by_net.append((net, coords))
 
     return terminals_by_net
 
 
 def create_virtual_terminal_nodes(G: nx.Graph,
-                                  terminals_by_net: List[Tuple[str, str, Tuple[int, int]]],
+                                  terminals_by_net: List[Tuple[str, List[Tuple[str, Tuple[int, int]]]]],
                                   io_pins: Iterable,
                                   tech):
     """ Create virtual terminal nodes for each net.
@@ -381,7 +381,7 @@ def create_virtual_terminal_nodes(G: nx.Graph,
     virtual_terminal_nodes = defaultdict(list)
     cnt = count()
 
-    for net, layer, terminals in terminals_by_net:
+    for net, terminals in terminals_by_net:
         weight = 1000
         if len(terminals) > 0:
             # if layer in (l_ndiffusion, l_pdiffusion) and False:  # TODO: make tech independet
@@ -393,10 +393,10 @@ def create_virtual_terminal_nodes(G: nx.Graph,
             #         assert n in G.nodes, "Node not present in graph: %s" % str(n)
             #         G.add_edge(virtual_net_terminal, n, weight=weight)
             # else:
-            virtual_net_terminal = ('virtual', net, layer, next(cnt))
+            virtual_net_terminal = ('virtual', net, next(cnt))
             virtual_terminal_nodes[net].append(virtual_net_terminal)
 
-            for p in terminals:
+            for layer, p in terminals:
                 n = layer, p
                 assert n in G.nodes, "Node not present in graph: %s" % str(n)
                 # High weight for virtual edge
@@ -406,7 +406,7 @@ def create_virtual_terminal_nodes(G: nx.Graph,
     cnt = count()
     # Create virtual nodes for I/O pins.
     for p in io_pins:
-        virtual_net_terminal = ('virtual_pin', p, tech.pin_layer, next(cnt))
+        virtual_net_terminal = ('virtual_pin', p, next(cnt))
         virtual_terminal_nodes[p].append(virtual_net_terminal)
 
         for p in routing_nodes[tech.pin_layer]:

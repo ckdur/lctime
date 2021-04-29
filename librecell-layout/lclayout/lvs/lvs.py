@@ -69,8 +69,12 @@ def extract_l2n(layout: db.Layout, top_cell: db.Cell) -> db.LayoutToNetlist:
     # Without netlist comparision capabilities.
     l2n = db.LayoutToNetlist(db.RecursiveShapeIterator(layout, top_cell, []))
 
+    hierarchical_layers_by_name = dict()
+
     def make_layer(layer_name: str):
-        return l2n.make_layer(layout.layer(*layermap[layer_name]), layer_name)
+        layer = l2n.make_layer(layout.layer(*layermap[layer_name]), layer_name)
+        hierarchical_layers_by_name[layer_name] = hierarchical_layers_by_name
+        return layer
 
     rnwell = make_layer(l_nwell)
     rpwell = make_layer(l_pwell)

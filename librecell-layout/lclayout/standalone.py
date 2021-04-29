@@ -397,7 +397,7 @@ class LcLayout:
                 for vp in virtual_pins:
                     # Get routing nodes adjacent to virtual pin nodes. They contain the location of the pin.
                     locations = [l for _, l in rt.edges(vp)]
-                    _, net_name, _, _ = vp
+                    _, net_name, _ = vp
                     for layer, (x, y) in locations:
                         w = tech.minimum_pin_width
                         s = self.shapes[layer]
