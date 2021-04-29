@@ -12,6 +12,7 @@
 # Source location: https://codeberg.org/tok/librecell
 #
 import networkx as nx
+import klayout.db as db
 from itertools import count
 from collections import defaultdict
 
@@ -118,11 +119,11 @@ def _get_routing_node_locations_per_layer(g: nx.Graph) -> Dict[Any, Set[Tuple[in
     return routing_nodes
 
 
-def remove_illegal_routing_edges(graph: nx.Graph, shapes: Dict[Any, pya.Shapes], tech) -> None:
+def remove_illegal_routing_edges(graph: nx.Graph, shapes: Dict[Any, db.Shapes], tech) -> None:
     """ Remove nodes and edges from  G that would conflict
     with predefined `shapes`.
     :param graph: routing graph.
-    :param shapes: Dict[layer name, pya.Shapes]
+    :param shapes: Dict[layer name, db.Shapes]
     :param tech: module containing technology information
     :return: Dict[layer name, List[Node]]
     """
@@ -131,8 +132,8 @@ def remove_illegal_routing_edges(graph: nx.Graph, shapes: Dict[Any, pya.Shapes],
     # a-b in the graph with weight=min_spacing.
     spacing_graph = tech_util.spacing_graph(tech.min_spacing)
 
-    # Get a dict mapping layer names to pya.Regions
-    regions = {l: pya.Region(s) for l, s in shapes.items()}
+    # Get a dict mapping layer names to db.Regions
+    regions = {l: db.Region(s) for l, s in shapes.items()}
     illegal_edges = set()
     # For each edge in the graph check if it conflicts with an existing shape.
     # Remember the edge if it is in conflict.
@@ -183,10 +184,10 @@ def remove_illegal_routing_edges(graph: nx.Graph, shapes: Dict[Any, pya.Shapes],
     graph.remove_nodes_from(unconnected)
 
 
-def remove_existing_routing_edges(G: nx.Graph, shapes: Dict[Any, pya.Shapes], tech) -> None:
+def remove_existing_routing_edges(G: nx.Graph, shapes: Dict[Any, db.Shapes], tech) -> None:
     """ Remove edges in G that are already routed by a shape in `shapes`.
     :param G: Routing graph to be modified.
-    :param shapes: Dict[layer, pya.Shapes]
+    :param shapes: Dict[layer, db.Shapes]
     :param tech: module containing technology information
     :return: None
     """
@@ -194,7 +195,7 @@ def remove_existing_routing_edges(G: nx.Graph, shapes: Dict[Any, pya.Shapes], te
     # Remove all routing edges that are inside existing shapes.
     # (They are already connected and cannot be used for routing).
     for l in tech.routing_layers.keys():
-        r = pya.Region(shapes[l])
+        r = db.Region(shapes[l])
         r.merge()
         edges = edges_inside(G, r, 1)
         for e in edges:
@@ -203,12 +204,91 @@ def remove_existing_routing_edges(G: nx.Graph, shapes: Dict[Any, pya.Shapes], te
                 G.remove_edge(*e)
 
 
+def _extract_terminal_nodes_from_shape(routing_nodes: Dict[Any, Set[Tuple[int, int]]],
+                                       layer: str,
+                                       shape: db.Shape,
+                                       tech) -> List[Tuple[int, int]]:
+    """
+    Get coordinates of routing nodes that lie inside the shape.
+    :param graph:
+    :param routing_nodes: Set of node coordinates per layer.
+    :param layer:
+    :param net_shape:
+    :param tech:
+    :return:
+    """
+
+    # Determine the maximum size of adjacent vias.
+    possible_via_layers = [data['layer'] for _, _, data in via_layers.edges(layer, data=True)]
+    assert len(possible_via_layers) > 0, f"No via layer is specified that connects to layer '{layer}'."
+    enc = max((tech.minimum_enclosure.get((layer, via_layer), 0) for via_layer in possible_via_layers),
+              default=0)
+    max_via_size = max((tech.via_size[l] for l in possible_via_layers))
+
+    # TODO: How to convert db.Shape into db.Region in a clean way???
+
+    if isinstance(shape, db.Shape):
+        s = db.Shapes()
+        s.insert(shape)
+        terminal_region = db.Region(s)
+    else:
+        terminal_region = db.Region()
+        terminal_region.insert(shape)
+
+    if layer in tech.routing_layers:
+        # On routing layers enclosure can be added, so nodes are not required to be properly enclosed.
+        d = 1
+        routing_terminals = interacting(routing_nodes[layer], terminal_region, d)
+    else:
+        # A routing node must be properly enclosed to be used.
+        d = enc + max_via_size // 2
+        routing_terminals = inside(routing_nodes[layer], terminal_region, d)
+
+    return routing_terminals
+
+
+def extract_terminal_nodes_v2(graph: nx.Graph,
+                              pin_shapes_by_net: Dict[str, List[List[Tuple[str, db.Polygon]]]],
+                              tech):
+    routing_nodes = _get_routing_node_locations_per_layer(graph)
+
+    # Create a list of terminal areas: [(net, layer, [terminal, ...]), ...]
+    terminals_by_net = []
+    for net, pins in pin_shapes_by_net.items():
+        for pin in pins:
+            # Find all routing nodes that belong to this pin.
+            # (They should already be connected together.)
+            pin_nodes = []
+            for terminal_shape in pin:
+                # Get all nodes of this terminal shape. Append them to the nodes of the pin.
+                layer, polygon = terminal_shape
+
+                if layer in routing_nodes:  # Skip via layers.
+                    assert isinstance(polygon, db.Polygon)
+
+                    nodes = _extract_terminal_nodes_from_shape(routing_nodes,
+                                                               layer,
+                                                               polygon,
+                                                               tech)
+
+                    # Don't use terminals for normal routing
+
+                    routing_nodes[layer] -= set(nodes)
+                    # TODO: need to be removed from G also. Better: construct edges in G afterwards.
+
+                    pin_nodes.extend(((layer, t) for t in nodes))
+            if pin_nodes:
+                terminals_by_net.append((net, pin_nodes))
+
+    return terminals_by_net
+
+
 def extract_terminal_nodes(graph: nx.Graph,
-                           shapes: Dict[str, pya.Shapes],
+                           shapes: Dict[str, db.Shapes],
                            tech):
     """ Get terminal nodes for each net.
     :param graph: Routing graph.
-    :param net_regions: Regions that are connected to a net: Dict[net, Dict[layer, pya.Region]]
+    :param net_regions: Regions that are connected to a net: Dict[net, Dict[layer, db.Region]]
     :param tech: module containing technology information
     :return: list of terminals: [(net, [(layer, terminal coordinates), ...]), ...]
     """
@@ -222,64 +302,15 @@ def extract_terminal_nodes(graph: nx.Graph,
             net = net_shape.property('net')
 
             if net is not None:
-                possible_via_layers = [data['layer'] for _, _, data in via_layers.edges(layer, data=True)]
-                assert len(possible_via_layers) > 0, f"No via layer is specified that connects to layer '{layer}'."
-                enc = max((tech.minimum_enclosure.get((layer, via_layer), 0) for via_layer in possible_via_layers),
-                          default=0)
-                max_via_size = max((tech.via_size[l] for l in possible_via_layers))
+                nodes = _extract_terminal_nodes_from_shape(routing_nodes,
+                                                           layer,
+                                                           net_shape,
+                                                           tech)
 
-                # TODO: How to convert db.Shape into db.Region in a clean way???
-
-                s = db.Shapes()
-                s.insert(net_shape)
-                terminal_region = pya.Region(s)
-
-                if layer in tech.routing_layers:
-                    # On routing layers enclosure can be added, so nodes are not required to be properly enclosed.
-                    d = 1
-                    routing_terminals = interacting(routing_nodes[layer], terminal_region, d)
-                else:
-                    # A routing node must be properly enclosed to be used.
-                    d = enc + max_via_size // 2
-                    routing_terminals = inside(routing_nodes[layer], terminal_region, d)
-
-                terminals_by_net.append((net, [(layer, t) for t in routing_terminals]))
+                terminals_by_net.append((net, [(layer, t) for t in nodes]))
                 # Don't use terminals for normal routing
-                routing_nodes[layer] -= set(routing_terminals)
+                routing_nodes[layer] -= set(nodes)
                 # TODO: need to be removed from G also. Better: construct edges in G afterwards.
-
-    # for net, regions in net_regions.items():
-    #     for layer, region in regions.items():
-    #         if layer in routing_nodes:
-    #             for net_shape in region.each_merged():
-    #
-    #                 possible_via_layers = [data['layer'] for _, _, data in via_layers.edges(layer, data=True)]
-    #                 enc = max((tech.minimum_enclosure.get((layer, via_layer), 0) for via_layer in possible_via_layers))
-    #                 max_via_size = max((tech.via_size[l] for l in possible_via_layers))
-    #
-    #                 if layer in tech.routing_layers:
-    #                     # On routing layers enclosure can be added, so nodes are not required to be properly enclosed.
-    #                     d = 1
-    #                     routing_terminals = interacting(routing_nodes[layer], pya.Region(net_shape), d)
-    #                 else:
-    #                     # A routing node must be properly enclosed to be used.
-    #                     d = enc + max_via_size // 2
-    #                     routing_terminals = inside(routing_nodes[layer], pya.Region(net_shape), d)
-    #
-    #                 terminals_by_net.append((net, layer, routing_terminals))
-    #                 # Don't use terminals for normal routing
-    #                 routing_nodes[layer] -= set(routing_terminals)
-    #                 # TODO: need to be removed from G also. Better: construct edges in G afterwards.
-    #         else:
-    #             logger.warning("Layer '{}' does not contain any routing nodes.".format(layer))
-
-    # # Sanity check
-    # error = False
-    # for net_name, layer, terminals in terminals_by_net:
-    #     if len(terminals) == 0:
-    #         logger.error(
-    #             "Shape of net {} on layer '{}' does not contain any routing grid point.".format(net_name, layer))
-    #         error = True
 
     return terminals_by_net
 

@@ -14,7 +14,7 @@
 import sys
 
 import networkx as nx
-from typing import Tuple, Iterable
+from typing import Tuple, Iterable, List
 
 # klayout.db should not be imported if script is run from KLayout GUI.
 if 'pya' not in sys.modules:
@@ -52,13 +52,13 @@ def is_edge_inside(graph_edge, r: pya.Region, margin: int):
     return not p.inside(r).is_empty()
 
 
-def inside(points: Iterable[Tuple[int, int]], r: pya.Region, margin: int):
+def inside(points: Iterable[Tuple[int, int]], r: pya.Region, margin: int) -> List[Tuple[int, int]]:
     """ Get all points that lie inside the region.
     """
     return [p for p in points if is_inside(p, r, margin)]
 
 
-def interacting(points: Iterable[Tuple[int, int]], r: pya.Region, margin: int):
+def interacting(points: Iterable[Tuple[int, int]], r: pya.Region, margin: int) -> List[Tuple[int, int]]:
     """ Get all points that are close (margin) to the region.
     """
     return [p for p in points if interacts(p, r, margin)]

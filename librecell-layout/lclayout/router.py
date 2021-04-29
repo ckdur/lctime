@@ -211,11 +211,14 @@ class DefaultRouter():
 
         # Store shapes of each net as (layer_name, shape) tuples.
         shapes_by_net: Dict[db.Net, List[Tuple[str, db.Polygon]]] = dict()
-        net_by_shape: Dict[Tuple[str, db.Polygon], db.Net] = dict()
+        # net_by_shape: Dict[Tuple[str, db.Polygon], db.Net] = dict()
         for net in nets_extracted:
             shapes_of_net = list()
-            for layer_name in shapes.keys():
-                r = l2n.layer_by_name(layer_name)
+            lvs_layers = {l: l for l in shapes.keys()}
+            lvs_layers[l_pdiffusion] = 'psd'
+            lvs_layers[l_ndiffusion] = 'nsd'
+            for layer_name, lvs_layer_name in lvs_layers.items():
+                r = l2n.layer_by_name(lvs_layer_name)
                 if r is not None:
                     # net_shapes = db.Shapes()  # Sink for shapes.
                     # l2n.shapes_of_net(net, r, True, net_shapes, 1)  # Get with properties.
@@ -228,7 +231,7 @@ class DefaultRouter():
                         # print(layout.properties(s.prop_id))
                         assert isinstance(s, db.Polygon)
                         shapes_of_net.append((layer_name, s))
-                        net_by_shape[(layer_name, s)] = net
+                        # net_by_shape[(layer_name, s)] = net
                 else:
                     logger.debug(f"No such hierarchical layer '{layer_name}'.")
 
@@ -268,7 +271,10 @@ class DefaultRouter():
         remove_existing_routing_edges(graph, shapes, tech)
 
         # Create a list of terminal areas: [(net, [(layer, terminal_coord), ...]), ...]
-        terminals_by_net = extract_terminal_nodes(graph, shapes, tech)
+        # terminals_by_net = extract_terminal_nodes(graph, shapes, tech)
+        terminals_by_net = extract_terminal_nodes_v2(graph, pin_shapes_by_net, tech)
+        print(terminals_by_net)
+        exit(1)
 
         # Embed transistor terminal nodes in to routing graph.
         terminals_by_net.extend(embed_transistor_terminal_nodes(graph, transistor_layouts, tech))
