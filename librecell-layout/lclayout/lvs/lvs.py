@@ -58,12 +58,12 @@ class MOS4To3NetlistSpiceReader(db.NetlistSpiceReaderDelegate):
             return True
 
 
-def extract_netlist(layout: db.Layout, top_cell: db.Cell) -> db.Netlist:
+def extract_l2n(layout: db.Layout, top_cell: db.Cell) -> db.LayoutToNetlist:
     """
     Extract a device level netlist of 3-terminal MOSFETs from the cell `top_cell` of layout `layout`.
     :param layout: Layout object.
     :param top_cell: The top cell of the circuit.
-    :return: Netlist as a `klayout.db.Circuit` object.
+    :return: `klayout.db.LayoutToNetlist` object.
     """
 
     # Without netlist comparision capabilities.
@@ -151,6 +151,19 @@ def extract_netlist(layout: db.Layout, top_cell: db.Cell) -> db.Netlist:
     # Perform netlist extraction
     logger.debug("Extracting netlist from layout")
     l2n.extract_netlist()
+
+    return l2n
+
+
+def extract_netlist(layout: db.Layout, top_cell: db.Cell) -> db.Netlist:
+    """
+    Extract a device level netlist of 3-terminal MOSFETs from the cell `top_cell` of layout `layout`.
+    :param layout: Layout object.
+    :param top_cell: The top cell of the circuit.
+    :return: Netlist as a `klayout.db.Circuit` object.
+    """
+
+    l2n = extract_l2n(layout, top_cell)
 
     netlist = l2n.netlist()
     netlist.make_top_level_pins()
