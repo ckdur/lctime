@@ -52,15 +52,21 @@ except ImportError as e:
 logger = logging.getLogger(__name__)
 
 
-def _merge_all_layers(shapes):
-    # TODO: Move into LcLayout class.
-    # Merge all polygons on all layers.
+def _merge_all_layers(shapes: Dict[str, db.Shapes]):
+    """
+    Merge all polygons on all layers.
+    """
     for layer_name, s in shapes.items():
-        if '_label' not in layer_name:
-            r = pya.Region(s)
-            r.merge()
-            s.clear()
-            s.insert(r)
+        texts = [t.text for t in s.each() if t.is_text()]
+
+        r = pya.Region(s)
+        r.merge()
+        s.clear()
+        s.insert(r)
+
+        # Copy text labels.
+        for t in texts:
+            s.insert(t)
 
 
 def _draw_label(shapes, layer, pos: Tuple[int, int], text: str) -> None:
@@ -370,10 +376,11 @@ class LcLayout:
                             # Remove notches per polygon to avoid connecting independent shapes.
                             s_filled = pya.Shapes()
                             for shape in s.each():
-                                r = pya.Region(shape.polygon)
+                                if not shape.is_text:
+                                    r = pya.Region(shape.polygon)
 
-                                filled = fill_notches(r, tech.minimum_notch[layer])
-                                s_filled.insert(filled)
+                                    filled = fill_notches(r, tech.minimum_notch[layer])
+                                    s_filled.insert(filled)
 
                             s.insert(s_filled)
 

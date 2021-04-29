@@ -424,11 +424,16 @@ def _merge_all_layers(shapes: Dict[str, db.Shapes]):
     Merge all polygons on all layers.
     """
     for layer_name, s in shapes.items():
-        if '_label' not in layer_name:
-            r = pya.Region(s)
-            r.merge()
-            s.clear()
-            s.insert(r)
+        texts = [t.text for t in s.each() if t.is_text()]
+
+        r = pya.Region(s)
+        r.merge()
+        s.clear()
+        s.insert(r)
+
+        # Copy text labels.
+        for t in texts:
+            s.insert(t)
 
 
 def _is_virtual_node_fn(n) -> bool:

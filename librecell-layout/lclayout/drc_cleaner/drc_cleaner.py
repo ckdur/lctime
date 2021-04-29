@@ -333,7 +333,7 @@ def clean(tech,
     for [l1, l2], via_dict in tech.via_layers.edges.items():
         via_layer=via_dict['layer']
         for outer in (l1, l2):
-            min_enclosure[(outer, via_layer)] = tech.minimum_enclosure[(outer, via_layer)]
+            min_enclosure[(outer, via_layer)] = tech.minimum_enclosure.get((outer, via_layer), 0)
 
     for outer_layers, inner_layers in containtement_constraints:
         for outer_layer, inner_layer in product(outer_layers, inner_layers):
