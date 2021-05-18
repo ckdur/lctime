@@ -247,9 +247,17 @@ def _extract_terminal_nodes_from_shape(routing_nodes: Dict[Any, Set[Tuple[int, i
     return routing_terminals
 
 
-def extract_terminal_nodes_v2(graph: nx.Graph,
-                              pin_shapes_by_net: Dict[str, List[List[Tuple[str, db.Polygon]]]],
-                              tech):
+def extract_terminal_nodes_by_lvs(graph: nx.Graph,
+                                  pin_shapes_by_net: Dict[str, List[List[Tuple[str, db.Polygon]]]],
+                                  tech) -> List[Tuple[str, List]]:
+    """
+    Extract terminals by using the netlist extraction functionality of Klayout.
+    Routing nodes that are already connected by existing routing are put into a single terminal.
+    :param graph:
+    :param pin_shapes_by_net:
+    :param tech:
+    :return: A list of the form [(net name, [terminal1_node1, terminal1_node1, ...]), ...]
+    """
     routing_nodes = _get_routing_node_locations_per_layer(graph)
 
     # Create a list of terminal areas: [(net, layer, [terminal, ...]), ...]

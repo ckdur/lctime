@@ -273,16 +273,16 @@ class DefaultRouter():
         # Remove illegal routing nodes from graph and get a dict of legal routing nodes per layer.
         remove_illegal_routing_edges(graph, shapes, tech)
 
-        # if not debug_routing_graph:
-        #     assert nx.is_connected(graph)
-
         # Remove pre-routed edges from graph.
         remove_existing_routing_edges(graph, shapes, tech)
 
         # Create a list of terminal areas: [(net, [(layer, terminal_coord), ...]), ...]
         terminals_by_net = extract_terminal_nodes(graph, shapes, tech)
-        name_by_term = {name: t for name, terms in terminals_by_net for t in terms}
-        terminals_by_net_lvs = extract_terminal_nodes_v2(graph, pin_shapes_by_net, tech)
+
+        # Extract terminals by using the netlist extraction functionality of KLayout.
+        # This takes existing routing into account. Routing nodes that are already connected
+        # by existing wires are put into a single terminal.
+        terminals_by_net_lvs = extract_terminal_nodes_by_lvs(graph, pin_shapes_by_net, tech)
 
         # Find terminals that are already connected by routing and join them to single terminals.
         connected_terminals = {i: terms for i, (_net, terms) in enumerate(terminals_by_net_lvs)}
@@ -290,12 +290,6 @@ class DefaultRouter():
         reverse_lut = {
             t: i for i, terms in connected_terminals.items() for t in terms
         }
-        for net, terminals in terminals_by_net:
-            print(net, ":", terminals)
-        print()
-        # for net, terminals in terminals_by_net_lvs:
-        #     print(net, ":", terminals)
-        # print()
 
         # Join terminals such that terminals that are connected by existing routes
         # are merged into a single terminal.
@@ -313,26 +307,12 @@ class DefaultRouter():
                     joined_terminals.append((net, connected_terminals[i]))
             else:
                 joined_terminals.append((net, terminals))
-        print()
-        print("Joined:")
-        for net, terminals in joined_terminals:
-            print(net, ":", terminals)
-        print()
 
-        print()
-
+        # Update the list of terminals with the joined terminals.
         terminals_by_net = joined_terminals
-
-
 
         # Embed transistor terminal nodes in to routing graph.
         terminals_by_net.extend(embed_transistor_terminal_nodes(graph, transistor_layouts, tech))
-
-        # # Remove terminals of nets with only one terminal. They need not be routed.
-        # # This can happen if a net is already connected by abutment of two transistors.
-        # # Count terminals of a net.
-        # num_appearance = Counter(chain((net for net, _t in terminals_by_net), io_pins))
-        # terminals_by_net = [t for t in terminals_by_net if num_appearance[t[0]] > 1]
 
         # Check if each net really has a routing terminal.
         # It can happen that there is none due to spacing issues.
