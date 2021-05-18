@@ -281,27 +281,66 @@ class DefaultRouter():
 
         # Create a list of terminal areas: [(net, [(layer, terminal_coord), ...]), ...]
         terminals_by_net = extract_terminal_nodes(graph, shapes, tech)
-        # terminals_by_net = extract_terminal_nodes_v2(graph, pin_shapes_by_net, tech)
-        # for net, terminals in terminals_by_net:
+        name_by_term = {name: t for name, terms in terminals_by_net for t in terms}
+        terminals_by_net_lvs = extract_terminal_nodes_v2(graph, pin_shapes_by_net, tech)
+
+        # Find terminals that are already connected by routing and join them to single terminals.
+        connected_terminals = {i: terms for i, (_net, terms) in enumerate(terminals_by_net_lvs)}
+        # Create mapping from nodes to the terminal id where they are connected to.
+        reverse_lut = {
+            t: i for i, terms in connected_terminals.items() for t in terms
+        }
+        for net, terminals in terminals_by_net:
+            print(net, ":", terminals)
+        print()
+        # for net, terminals in terminals_by_net_lvs:
         #     print(net, ":", terminals)
-        # exit()
+        # print()
+
+        # Join terminals such that terminals that are connected by existing routes
+        # are merged into a single terminal.
+        joined_terminals = []
+        processed = set()
+        for net, terminals in terminals_by_net:
+            connected_terminal_id = {reverse_lut[t] for t in terminals if t in reverse_lut}
+            # print(net, connected_terminal_id)
+            if len(connected_terminal_id) > 1:
+                logger.error("Short circuit of nets detected.")
+            if len(connected_terminal_id) > 0:
+                i = list(connected_terminal_id)[0]
+                if i not in processed:
+                    processed.add(i)
+                    joined_terminals.append((net, connected_terminals[i]))
+            else:
+                joined_terminals.append((net, terminals))
+        print()
+        print("Joined:")
+        for net, terminals in joined_terminals:
+            print(net, ":", terminals)
+        print()
+
+        print()
+
+        terminals_by_net = joined_terminals
+
+
 
         # Embed transistor terminal nodes in to routing graph.
         terminals_by_net.extend(embed_transistor_terminal_nodes(graph, transistor_layouts, tech))
 
-        # Remove terminals of nets with only one terminal. They need not be routed.
-        # This can happen if a net is already connected by abutment of two transistors.
-        # Count terminals of a net.
-        num_appearance = Counter(chain((net for net, _t in terminals_by_net), io_pins))
-        terminals_by_net = [t for t in terminals_by_net if num_appearance[t[0]] > 1]
+        # # Remove terminals of nets with only one terminal. They need not be routed.
+        # # This can happen if a net is already connected by abutment of two transistors.
+        # # Count terminals of a net.
+        # num_appearance = Counter(chain((net for net, _t in terminals_by_net), io_pins))
+        # terminals_by_net = [t for t in terminals_by_net if num_appearance[t[0]] > 1]
 
         # Check if each net really has a routing terminal.
         # It can happen that there is none due to spacing issues.
         error = False
         # Check if each net has at least a terminal.
+        net_names_of_terminals = {net for net, _ in terminals_by_net}
         for net_name in all_net_names:
-            num_terminals = num_appearance.get(net_name)
-            if num_terminals is None or num_terminals == 0:
+            if net_name not in net_names_of_terminals:
                 logger.error("Net '{}' has no routing terminal.".format(net_name))
                 error = True
 

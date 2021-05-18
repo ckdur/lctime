@@ -285,7 +285,7 @@ def extract_terminal_nodes_v2(graph: nx.Graph,
 
 def extract_terminal_nodes(graph: nx.Graph,
                            shapes: Dict[str, db.Shapes],
-                           tech):
+                           tech) -> List[Tuple[str, List]]:
     """ Get terminal nodes for each net.
     Terminal nodes are extracted from the shapes on the layer and their 'net' property.
     :param graph: Routing graph.
@@ -312,6 +312,9 @@ def extract_terminal_nodes(graph: nx.Graph,
                 # Don't use terminals for normal routing
                 routing_nodes[layer] -= set(nodes)
                 # TODO: need to be removed from G also. Better: construct edges in G afterwards.
+
+    # Remove empty terminals.
+    terminals_by_net = [(net, terms) for net, terms in terminals_by_net if terms]
 
     return terminals_by_net
 

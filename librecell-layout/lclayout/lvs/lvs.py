@@ -76,10 +76,20 @@ def extract_l2n(layout: db.Layout, top_cell: db.Cell) -> db.LayoutToNetlist:
         hierarchical_layers_by_name[layer_name] = hierarchical_layers_by_name
         return layer
 
+    def make_text_layer(layer_name: str):
+        """
+        Create a layer where only text labels will be used.
+        """
+        layer = l2n.make_text_layer(layout.layer(*layermap[layer_name]), layer_name + "_text")
+        #hierarchical_layers_by_name[layer_name] = hierarchical_layers_by_name
+        return layer
+
     rnwell = make_layer(l_nwell)
     rpwell = make_layer(l_pwell)
     rndiff = make_layer(l_ndiffusion)
+    # rndiff_label = make_text_layer(l_ndiffusion)
     rpdiff = make_layer(l_pdiffusion)
+    # rpdiff_label = make_text_layer(l_pdiffusion)
     rpoly = make_layer(l_poly)
     # rpoly_lbl = make_layer(l_poly_label)
     rndiff_cont = make_layer(l_ndiff_contact)
@@ -139,7 +149,10 @@ def extract_l2n(layout: db.Layout, top_cell: db.Cell) -> db.LayoutToNetlist:
 
     # Inter-layer
     l2n.connect(rpsd, rdiff_cont)
+    # l2n.connect(rpsd, rpdiff_label)
     l2n.connect(rnsd, rdiff_cont)
+    # l2n.connect(rnsd, rndiff_label)
+
     l2n.connect(rpoly, rpoly_cont)
     l2n.connect(rpoly_cont, rmetal1)
     l2n.connect(rdiff_cont, rmetal1)

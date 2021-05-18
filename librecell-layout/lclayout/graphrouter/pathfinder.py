@@ -170,8 +170,12 @@ def _route(detail_router: SignalRouter,
 
             G2.remove_nodes_from(forbidden_nodes)
 
+            logger.debug(f"Check if the net '{net}' that cannot be routed anymore.")
             for t1, t2 in combinations(terminals, 2):
-                assert nx.node_connectivity(G2, t1, t2) > 0, \
+                conn = nx.node_connectivity(G2, t1, t2)
+                if conn == 0:
+                    logger.error(f"Net '{net}' cannot be routed. A path is blocked by reserved nodes.")
+                assert conn > 0, \
                     Exception("Graph has been disconnected by removal of reserved nodes ({}).".format(net))
 
             Gs[net] = G2

@@ -146,12 +146,12 @@ def spanning_subtree(
     # )
     #
     # source = center
-    source = terminals[0]
 
     sinks = set(terminals)
-    sinks -= {source}
-
-    S.add_node(source)
+    if len(terminals) > 0:
+        source = terminals[0]
+        sinks -= {source}
+        S.add_node(source)
 
     while sinks:
         # Initialize priority queue with current routing tree at cost 0.
@@ -170,7 +170,8 @@ def spanning_subtree(
         end = path[-1]
         sinks.remove(end)
 
-    assert nx.is_tree(S)
+    if len(S) > 0:
+        assert nx.is_tree(S)
     return S
 
 

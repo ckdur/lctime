@@ -590,7 +590,7 @@ class LcLayout:
         self._05_draw_cell_template()
         self._06_route()
         self._08_draw_routes()
-        # self._08_2_insert_well_taps(vdd_net=self.SUPPLY_VOLTAGE_NET, gnd_net=self.GND_NET)
+        self._08_2_insert_well_taps(vdd_net=self.SUPPLY_VOLTAGE_NET, gnd_net=self.GND_NET)
         self._08_03_connect_well_taps(vdd_net=self.SUPPLY_VOLTAGE_NET, gnd_net=self.GND_NET)
         self._09_post_process()
 
