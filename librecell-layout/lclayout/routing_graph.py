@@ -287,6 +287,7 @@ def extract_terminal_nodes(graph: nx.Graph,
                            shapes: Dict[str, db.Shapes],
                            tech):
     """ Get terminal nodes for each net.
+    Terminal nodes are extracted from the shapes on the layer and their 'net' property.
     :param graph: Routing graph.
     :param net_regions: Regions that are connected to a net: Dict[net, Dict[layer, db.Region]]
     :param tech: module containing technology information

@@ -199,7 +199,19 @@ def compare_netlist(extracted: db.Netlist, reference: db.Netlist) -> bool:
     reference.simplify()
     extracted.simplify()
 
+    ext: db.Circuit = next(extracted.each_circuit())
+    ref = next(reference.each_circuit())
+
+    pins_ext = set((p.name() for p in ext.each_pin()))
+    pins_ref = set((p.name() for p in ref.each_pin()))
+    unnecessary_pins = pins_ext - pins_ref
+    logger.debug(f"Unnecessary pins of extracted circuit: {unnecessary_pins}")
+    for p in unnecessary_pins:
+        logger.debug(f"Remove pin: {p}")
+        ext.remove_pin(ext.pin_by_name(p).id())
+
     cmp = db.NetlistComparer()
+    cmp.dont_consider_net_names = True
     compare_result = cmp.compare(extracted, reference)
     logger.debug("Netlist comparision result: {}".format(compare_result))
 

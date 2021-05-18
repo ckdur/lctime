@@ -193,8 +193,17 @@ class DefaultRouter():
                 if net_name is not None:
                     p = shape.polygon
                     assert isinstance(p, db.Polygon)
-                    p1 = next(p.each_point_hull())
-                    label = db.Text(net_name, p1.x, p1.y)
+
+                    # Find a position which is clearly inside the polygon to place the label.
+                    r = db.Region()
+                    r.insert(p)
+                    # Decompose into rectangles and pick a rectangle.
+                    rects = r.decompose_trapezoids_to_region()
+                    t = next(rects.each())
+                    # Put the label in the center of the rectangle.
+                    center = t.bbox().center()
+
+                    label = db.Text(net_name, center.x, center.y)
                     net_labels.append((layer_name, label))
 
         for layer_name, label in net_labels:
@@ -271,10 +280,11 @@ class DefaultRouter():
         remove_existing_routing_edges(graph, shapes, tech)
 
         # Create a list of terminal areas: [(net, [(layer, terminal_coord), ...]), ...]
-        # terminals_by_net = extract_terminal_nodes(graph, shapes, tech)
-        terminals_by_net = extract_terminal_nodes_v2(graph, pin_shapes_by_net, tech)
-        print(terminals_by_net)
-        exit(1)
+        terminals_by_net = extract_terminal_nodes(graph, shapes, tech)
+        # terminals_by_net = extract_terminal_nodes_v2(graph, pin_shapes_by_net, tech)
+        # for net, terminals in terminals_by_net:
+        #     print(net, ":", terminals)
+        # exit()
 
         # Embed transistor terminal nodes in to routing graph.
         terminals_by_net.extend(embed_transistor_terminal_nodes(graph, transistor_layouts, tech))
