@@ -287,6 +287,7 @@ class LcLayout:
         :param gnd_net:
         :return:
         """
+        logger.info("Insert well-taps.")
         logger.debug("Insert well-taps (unconnected yet).")
         spacing_graph = self._spacing_graph
 
@@ -356,6 +357,9 @@ class LcLayout:
         success = self._08_02_2_try_route_welltaps(gnd_net, vdd_net)
 
         if not success:
+            self.shapes[l_nplus].clear()
+            self.shapes[l_pplus].clear()
+
             logger.info("Failed to route all well-taps.")
             logger.info("Try to route n-taps only.")
             # Try to route all n-taps at once.
@@ -370,6 +374,7 @@ class LcLayout:
                 logger.info("Try to route single n-taps.")
                 tap_locations = list(ntap_locations.each_merged())
                 for i, p in enumerate(tap_locations):
+                    self.shapes[l_nplus].clear()
                     logger.info(f"Route tap {i + 1}/{len(tap_locations)}.")
                     ntap = self.shapes[l_nplus].insert(p)
                     ntap.set_property('net', vdd_net)
@@ -389,6 +394,7 @@ class LcLayout:
                 logger.info("Try to route single n-taps.")
                 tap_locations = list(ptap_locations.each_merged())
                 for i, p in enumerate(tap_locations):
+                    self.shapes[l_nplus].clear()
                     logger.info(f"Route tap {i+1}/{len(tap_locations)}.")
                     ptap = self.shapes[l_pplus].insert(p)
                     ptap.set_property('net', gnd_net)
@@ -397,6 +403,16 @@ class LcLayout:
                 logger.debug("Successfully routed all p-taps in one run.")
         else:
             logger.debug("Successfully routed all well-taps in one run.")
+
+        # Insert the regions in the layout together with the net where they should be connected.
+        # self.shapes[l_nplus].insert(ntap_locations)
+        for p in ntap_locations.each_merged():
+            ntap = self.shapes[l_nplus].insert(p)
+            ntap.set_property('net', vdd_net)
+        # self.shapes[l_pplus].insert(ptap_locations)
+        for p in ptap_locations.each_merged():
+            ptap = self.shapes[l_pplus].insert(p)
+            ptap.set_property('net', gnd_net)
 
     def _08_02_2_try_route_welltaps(self, gnd_net: str, vdd_net: str):
         """
