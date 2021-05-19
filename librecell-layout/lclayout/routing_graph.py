@@ -375,7 +375,7 @@ def embed_transistor_terminal_nodes(G: nx.Graph,
             for t in ts:
                 layer, (x, y) = t
 
-                logger.info(f"Terminal node {net} {layer} {t}")
+                # logger.debug(f"Terminal node {net} {layer} {t}")
 
                 # Insert terminal into G.
                 next_x = grid_round(x, tech.routing_grid_pitch_x, tech.grid_offset_x)

@@ -287,7 +287,7 @@ class LcLayout:
         :param gnd_net:
         :return:
         """
-        logger.debug("Insert well-taps.")
+        logger.debug("Insert well-taps (unconnected yet).")
         spacing_graph = self._spacing_graph
 
         ntap_keepout_layers = [l_pdiffusion, l_poly, l_metal1]
@@ -321,12 +321,6 @@ class LcLayout:
                     r = db.Region(self.shapes[other_layer])
                     r.size(min_spacing)
                     tap_locations -= r
-            #
-            # for (outer, inner), min_enc in self.tech.minimum_enclosure.items():
-            #     if inner == tap_layer:
-            #         o = db.Region(self.shapes[outer])
-            #         o.size(-min_enc)
-            #         tap_locations &= o
 
             # Shrink the tap location area by the size of the tap itself.
             # This way any point inside the tap location area can be used
@@ -357,24 +351,86 @@ class LcLayout:
             ptap = self.shapes[l_pplus].insert(p)
             ptap.set_property('net', gnd_net)
 
-    def _08_03_connect_well_taps(self, gnd_net: str, vdd_net: str):
+        # Try to route all well-taps at once.
+        # This yields the best result but might also fail if a tap is not routable.
+        success = self._08_02_2_try_route_welltaps(gnd_net, vdd_net)
+
+        if not success:
+            logger.info("Failed to route all well-taps.")
+            logger.info("Try to route n-taps only.")
+            # Try to route all n-taps at once.
+            for p in ntap_locations.each_merged():
+                ntap = self.shapes[l_nplus].insert(p)
+                ntap.set_property('net', vdd_net)
+            success = self._08_02_2_try_route_welltaps(gnd_net, vdd_net)
+
+            if not success:
+                # Try to route each tap on its own.
+                # Taps that cannot be routed are removed later.
+                logger.info("Try to route single n-taps.")
+                tap_locations = list(ntap_locations.each_merged())
+                for i, p in enumerate(tap_locations):
+                    logger.info(f"Route tap {i + 1}/{len(tap_locations)}.")
+                    ntap = self.shapes[l_nplus].insert(p)
+                    ntap.set_property('net', vdd_net)
+                    success = self._08_02_2_try_route_welltaps(gnd_net, vdd_net)
+            else:
+                logger.debug("Successfully routed all n-taps in one run.")
+
+            # Try to route all p-taps at once.
+            logger.info("Try to route p-taps only.")
+            for p in ptap_locations.each_merged():
+                ptap = self.shapes[l_pplus].insert(p)
+                ptap.set_property('net', gnd_net)
+            success = self._08_02_2_try_route_welltaps(gnd_net, vdd_net)
+            if not success:
+                # Try to route each tap on its own.
+                # Taps that cannot be routed are removed later.
+                logger.info("Try to route single n-taps.")
+                tap_locations = list(ptap_locations.each_merged())
+                for i, p in enumerate(tap_locations):
+                    logger.info(f"Route tap {i+1}/{len(tap_locations)}.")
+                    ptap = self.shapes[l_pplus].insert(p)
+                    ptap.set_property('net', gnd_net)
+                    success = self._08_02_2_try_route_welltaps(gnd_net, vdd_net)
+            else:
+                logger.debug("Successfully routed all p-taps in one run.")
+        else:
+            logger.debug("Successfully routed all well-taps in one run.")
+
+    def _08_02_2_try_route_welltaps(self, gnd_net: str, vdd_net: str):
         """
-        Run another routing pass to connect the power rails to the well taps.
-        :param gnd_net: Name of the ground net.
-        :param vdd_net: Name of the supply net.
         """
-        logger.debug("Connect well-taps.")
+
         router = DefaultRouter(
             graph_router=self.router,
             debug_routing_graph=self.debug_routing_graph,
             tech=self.tech,
         )
 
-        routing_trees = router.route(self.shapes, io_pins=[],
-                                     transistor_layouts=dict(),
-                                     routing_terminal_debug_layers=self._routing_terminal_debug_layers,
-                                     routing_nets={gnd_net, vdd_net},
-                                     top_cell=self.top_cell)
+        try:
+            logger.debug("Try to route well-taps.")
+            routing_trees = router.route(self.shapes, io_pins=[],
+                                         transistor_layouts=dict(),
+                                         routing_terminal_debug_layers=self._routing_terminal_debug_layers,
+                                         routing_nets={gnd_net, vdd_net},
+                                         top_cell=self.top_cell)
+            logger.debug("Successfully routed well-taps.")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to route well-taps. {e}.")
+            return False
+
+    def _08_03_connect_well_taps(self, gnd_net: str, vdd_net: str):
+        """
+        Run another routing pass to connect the power rails to the well taps.
+        :param gnd_net: Name of the ground net.
+        :param vdd_net: Name of the supply net.
+        """
+
+        # success = self._08_02_2_try_route_welltaps(gnd_net, vdd_net)
+        # if not success:
+        #     raise Exception("Failed to route welltaps.")
 
         # Now each tap area should be connected by one contact.
         # The shape of the actual implants is not correct yet.

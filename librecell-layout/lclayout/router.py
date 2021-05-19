@@ -242,7 +242,8 @@ class DefaultRouter():
                         shapes_of_net.append((layer_name, s))
                         # net_by_shape[(layer_name, s)] = net
                 else:
-                    logger.debug(f"No such hierarchical layer '{layer_name}'.")
+                    pass
+                    # logger.debug(f"No such hierarchical layer '{layer_name}'.")
 
             shapes_by_net[net] = shapes_of_net
 
