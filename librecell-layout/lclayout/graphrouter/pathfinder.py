@@ -170,7 +170,7 @@ def _route(detail_router: SignalRouter,
 
             G2.remove_nodes_from(forbidden_nodes)
 
-            logger.debug(f"Check if the net '{net}' that cannot be routed anymore.")
+            logger.debug(f"Check if the net '{net}' can be routed.")
             for t1, t2 in combinations(terminals, 2):
                 conn = nx.node_connectivity(G2, t1, t2)
                 if conn == 0:
