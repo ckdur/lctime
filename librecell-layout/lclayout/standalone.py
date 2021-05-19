@@ -357,6 +357,10 @@ class LcLayout:
         success = self._08_02_2_try_route_welltaps(gnd_net, vdd_net)
 
         if not success:
+
+            logger.warning("Well-taps could not be routed.")
+            return
+
             self.shapes[l_nplus].clear()
             self.shapes[l_pplus].clear()
 
