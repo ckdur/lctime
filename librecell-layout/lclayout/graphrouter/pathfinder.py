@@ -162,6 +162,9 @@ def _route(detail_router: SignalRouter,
     # Some routing nodes are only available for a specific net.
     Gs = dict()
     all_reserved = set(chain(*reserved_nodes.values()))
+    # List of terminals that cannot be connected.
+    # Of the form [(net, terminal1, terminal2), ...]
+    unroutable_terminals = []
     for net, terminals in signals.items():
         forbidden_nodes = all_reserved - set(reserved_nodes.get(net, {}))
         G2 = graph.copy()
@@ -171,12 +174,31 @@ def _route(detail_router: SignalRouter,
             G2.remove_nodes_from(forbidden_nodes)
 
             logger.debug(f"Check if the net '{net}' can be routed.")
-            for t1, t2 in combinations(terminals, 2):
-                conn = nx.node_connectivity(G2, t1, t2)
-                if conn == 0:
-                    logger.error(f"Net '{net}' cannot be routed. A path is blocked by reserved nodes.")
-                assert conn > 0, \
-                    Exception("Graph has been disconnected by removal of reserved nodes ({}).".format(net))
+
+            # Find connected components.
+            components = list(nx.connected_components(G2))
+
+            # Find the connected component in which the pin nodes are.
+            node_components = {
+                [i for i, c in enumerate(components) if t in c][0]
+                for t in terminals
+            }
+
+            if len(node_components) == 1:
+                # All terminals are in the same connected component and might be routable.
+                pass
+            else:
+                logger.debug(f"Net '{net}' is split among {len(node_components)} connected components of the graph.")
+                logger.error(f"Net '{net}' cannot be fully routed. A path is blocked by reserved nodes.")
+                raise Exception("Graph has been disconnected by removal of reserved nodes ({}).".format(net))
+
+            # for t1, t2 in combinations(terminals, 2):
+            #     conn = nx.node_connectivity(G2, t1, t2)
+            #     if conn == 0:
+            #         unroutable_terminals.append((net, t1, t2))
+            #         logger.error(f"Net '{net}' cannot be routed. A path is blocked by reserved nodes.")
+            #     assert conn > 0, \
+            #         Exception("Graph has been disconnected by removal of reserved nodes ({}).".format(net))
 
             Gs[net] = G2
 
