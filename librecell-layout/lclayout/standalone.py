@@ -344,7 +344,10 @@ class LcLayout:
         ntap_locations = find_tap_locations(l_nplus, l_nwell, ntap_keepout_layers, ntap_size)
         ptap_locations = find_tap_locations(l_pplus, l_pwell, ptap_keepout_layers, ptap_size)
 
-        # Visualize the regions in the layout.
+        logger.debug(f"Number of potential n-tap locations: {ntap_locations.count()}")
+        logger.debug(f"Number of potential p-tap locations: {ptap_locations.count()}")
+
+        # Insert the regions in the layout together with the net where they should be connected.
         # self.shapes[l_nplus].insert(ntap_locations)
         for p in ntap_locations.each_merged():
             ntap = self.shapes[l_nplus].insert(p)
