@@ -280,14 +280,20 @@ class LcLayout:
         # # Merge the polygons on all layers.
         # _merge_all_layers(self.shapes)
 
-    def _08_2_insert_well_taps(self, vdd_net, gnd_net):
+    def _08_2_insert_well_taps(self, vdd_net: str, gnd_net: str):
+        """
+        Mark locations where well taps can be placed.
+        :param vdd_net:
+        :param gnd_net:
+        :return:
+        """
         logger.debug("Insert well-taps.")
         spacing_graph = self._spacing_graph
 
-        ntap_size = (100, 100)
+        ntap_size = (100, 100) # TODO: Parametrize
         ntap_keepout_layers = [l_pdiffusion, l_poly, l_metal1]
 
-        ptap_size = (100, 100)
+        ptap_size = (100, 100) # TODO: Parametrize
         ptap_keepout_layers = [l_ndiffusion, l_poly, l_metal1]
 
         def find_tap_locations(tap_layer, well_layer, keepout_layers, tap_size) -> db.Region:
@@ -306,10 +312,12 @@ class LcLayout:
             tap_locations.size(-min_enc)
 
             # Cannot place the well-tap under poly or metal1 nor inside the diffusion area.
+            # Subtract all shapes of keep-out layers from the potential well-tap locations.
             for l in keepout_layers:
                 r = db.Region(self.shapes[l])
                 tap_locations -= r
 
+            # Shrink the potential well-tap ares such that all minimum-spacing rules are met.
             if tap_layer in spacing_graph:
                 for other_layer in spacing_graph[tap_layer]:
                     min_spacing = spacing_graph[tap_layer][other_layer]['min_spacing']
@@ -323,6 +331,9 @@ class LcLayout:
             #         o.size(-min_enc)
             #         tap_locations &= o
 
+            # Shrink the tap location area by the size of the tap itself.
+            # This way any point inside the tap location area can be used
+            # as a center of a tap.
             tap_locations.size(-tap_size[0], -tap_size[1])
 
             return tap_locations
@@ -341,7 +352,12 @@ class LcLayout:
             ptap = self.shapes[l_pplus].insert(p)
             ptap.set_property('net', gnd_net)
 
-    def _08_03_connect_well_taps(self, gnd_net, vdd_net):
+    def _08_03_connect_well_taps(self, gnd_net: str, vdd_net: str):
+        """
+        Run another routing pass to connect the power rails to the well taps.
+        :param gnd_net: Name of the ground net.
+        :param vdd_net: Name of the supply net.
+        """
         logger.debug("Connect well-taps.")
         router = DefaultRouter(
             graph_router=self.router,
