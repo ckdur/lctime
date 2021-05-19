@@ -98,7 +98,7 @@ output_writers = [
     ),
 
     LefWriter(
-        db_unit=1e-6, # microns
+        db_unit=1e-6,  # microns
         output_map=output_map,
         site="CORE"
     ),
@@ -132,8 +132,8 @@ min_spacing = {
     (l_pdiffusion, l_ndiffusion): 50,
     (l_ndiffusion, l_poly_contact): 10,
     (l_pdiffusion, l_poly_contact): 10,
-    (l_ndiffusion, l_pplus): 10,
-    (l_pdiffusion, l_nplus): 10,
+    (l_ndiffusion, l_pplus): 30,
+    (l_pdiffusion, l_nplus): 30,
     (l_nwell, l_pplus): 10,
     (l_pwell, l_nplus): 10,
     (l_nwell, l_nwell): 50,
@@ -234,6 +234,8 @@ minimum_enclosure = {
     # Via enclosure
     (l_ndiffusion, l_ndiff_contact): 10,
     (l_pdiffusion, l_pdiff_contact): 10,
+    (l_nplus, l_ndiff_contact): 40,  # Implicitly encodes the size of well taps.
+    (l_pplus, l_pdiff_contact): 40,  # Implicitly encodes the size of well taps.
     (l_nwell, l_nplus): 10,
     (l_pwell, l_pplus): 10,
     (l_poly, l_poly_contact): 10,

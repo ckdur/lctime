@@ -290,10 +290,7 @@ class LcLayout:
         logger.debug("Insert well-taps.")
         spacing_graph = self._spacing_graph
 
-        ntap_size = (100, 100) # TODO: Parametrize
         ntap_keepout_layers = [l_pdiffusion, l_poly, l_metal1]
-
-        ptap_size = (100, 100) # TODO: Parametrize
         ptap_keepout_layers = [l_ndiffusion, l_poly, l_metal1]
 
         def find_tap_locations(tap_layer, well_layer, keepout_layers, tap_size) -> db.Region:
@@ -334,11 +331,16 @@ class LcLayout:
             # Shrink the tap location area by the size of the tap itself.
             # This way any point inside the tap location area can be used
             # as a center of a tap.
-            tap_locations.size(-tap_size[0], -tap_size[1])
+            # tap_locations.size(-tap_size[0], -tap_size[1])
 
             return tap_locations
 
         # Find regions where it is feasible to place well-taps.
+        ntap_width = self.tech.minimum_enclosure[(l_nplus, l_ndiff_contact)] + self.tech.via_size[l_ndiff_contact] // 2
+        ptap_width = self.tech.minimum_enclosure[(l_pplus, l_pdiff_contact)] + self.tech.via_size[l_pdiff_contact] // 2
+        ntap_size = (ntap_width, ntap_width)
+        ptap_size = (ptap_width, ptap_width)
+
         ntap_locations = find_tap_locations(l_nplus, l_nwell, ntap_keepout_layers, ntap_size)
         ptap_locations = find_tap_locations(l_pplus, l_pwell, ptap_keepout_layers, ptap_size)
 
@@ -370,6 +372,45 @@ class LcLayout:
                                      routing_terminal_debug_layers=self._routing_terminal_debug_layers,
                                      routing_nets={gnd_net, vdd_net},
                                      top_cell=self.top_cell)
+
+        # Now each tap area should be connected by one contact.
+        # The shape of the actual implants is not correct yet.
+        # Detect locations of tap contacts, remove the tap location markers
+        # and create proper implant shapes (nplus/pplus).
+        def create_tap_implants(l_diff_contact: str,
+                                l_tap_areas: str,
+                                l_implant: str,
+                                implant_enclosure: float):
+            """
+
+            :param l_diff_contact: Layer that contains the contacts to diffusion and n/pplus.
+            :param l_tap_areas: Layer that contains the tap area markers.
+            :param l_implant: Layer where to create the implant.
+            :param implant_enclosure: Enclosure of implant around the tap contact.
+            :return:
+            """
+            contacts = self.shapes[l_diff_contact]
+            tap_areas = self.shapes[l_tap_areas]
+            r_contacts = db.Region()
+            r_contacts.insert(contacts)
+            r_tap_area = db.Region()
+            r_tap_area.insert(tap_areas)
+
+            # Find locations of taps.
+            taps = r_contacts & r_tap_area
+
+            # Clear markers.
+            tap_areas.clear()
+
+            # Create implant shapes.
+            implant = taps.size(implant_enclosure)
+            self.shapes[l_implant].insert(implant)
+
+        pplus_enclosure = self.tech.minimum_enclosure[(l_pplus, l_pdiff_contact)]
+        nplus_enclosure = self.tech.minimum_enclosure[(l_nplus, l_ndiff_contact)]
+
+        create_tap_implants(l_pdiff_contact, l_pplus, l_pplus, pplus_enclosure)
+        create_tap_implants(l_ndiff_contact, l_nplus, l_nplus, nplus_enclosure)
 
     def _09_post_process(self):
         tech = self.tech
