@@ -29,36 +29,14 @@ from sympy.logic import boolalg
 from lclayout.data_types import ChannelType
 import logging
 
+from .types import CombinationalOutput
+
 # logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
 
 """
 Extract logic formulas and memory loops from a transistor-level circuit graph.
 """
-
-
-class CombinationalOutput:
-    """
-    Description of an output signal of a combinatorial circuit.
-    """
-
-    def __init__(self, function: boolalg.Boolean, high_impedance: boolalg.Boolean):
-        self.function = function
-        self.high_impedance = high_impedance
-
-    def is_tristate(self):
-        """
-        Check if the output have be high-impedance.
-        Check if the high-impedance condition is satisfiable.
-        :return: bool
-        """
-        return satisfiable(self.high_impedance)
-
-    def __str__(self):
-        return "CombinationalOutput(f = {}, Z = {})".format(self.function, self.high_impedance)
-
-    def __repr__(self):
-        return str(self)
 
 
 class Memory:
@@ -108,9 +86,12 @@ class AbstractCircuit:
         :param output_formulas: Dictionary that maps output symbols to their boolean formulas.
         :param latches: Dictionary that holds the memory objects for each signal that is driven by a memory/latch.
         """
-        self.output_pins = output_pins
-        self.outputs = output_formulas
-        self.latches = latches
+        self.output_pins: Set[sympy.Symbol] = output_pins
+        "Set of all output pins."
+        self.outputs: Dict[sympy.Symbol, CombinationalOutput] = output_formulas
+        "Dictionary that maps output symbols to their boolean formulas."
+        self.latches: Dict[boolalg.BooleanAtom, Memory] = latches
+        "Dictionary that holds the memory objects for each signal that is driven by a memory/latch."
 
     def is_sequential(self) -> bool:
         """
@@ -118,6 +99,21 @@ class AbstractCircuit:
         :return:
         """
         return len(self.latches) > 0
+
+    def get_primary_inputs(self) -> Set[sympy.Symbol]:
+        """
+        Find all input pins that are relevant for the outputs.
+        :return: Set of input pins.
+        """
+        pins = set()
+        for o, f in self.outputs.items():
+            pins.update(f.function.atoms(sympy.Symbol))
+            pins.update(f.high_impedance.atoms(sympy.Symbol))
+        for _, latch in self.latches.items():
+            pins.update(latch.write_condition.atoms(sympy.Symbol()))
+            pins.update(latch.data.atoms(sympy.Symbol()))
+            pins.update(latch.oscillation_condition.atoms(sympy.Symbol()))
+        return pins
 
 
 def simplify_logic(f: boolalg.Boolean, force: bool = True) -> boolalg.Boolean:
@@ -337,7 +333,7 @@ def _get_conductivity_conditions(cmos_graph: nx.MultiGraph,
     gate_input_nets = find_input_gates(cmos_graph)
     # Find input nets that also connect to a source or drain, i.e. to a transmission gate.
     transmission_input_pins = inputs - gate_input_nets
-    logger.info("Input pins to a transmission gate: {}".format(transmission_input_pins))
+    logger.debug("Input pins to a transmission gate: {}".format(transmission_input_pins))
     if len(transmission_input_pins) < 2:
         logger.warning("`inputs` is expected to also contain VDD and GND.")
 
@@ -429,9 +425,9 @@ def complex_cmos_graph_to_formula(cmos_graph: nx.MultiGraph,
     # Consider all nodes as input variables that are either connected to transistor
     # gates only or are specified by the caller.
     deduced_input_pins = find_input_gates(cmos_graph)
-    logger.info("Deduced input pins: {}".format(deduced_input_pins))
+    logger.debug("Deduced input pins: {}".format(deduced_input_pins))
     inputs = deduced_input_pins | input_pins
-    logger.info("All input pins: {}".format(deduced_input_pins))
+    logger.debug("All input pins: {}".format(deduced_input_pins))
 
     # Set of nodes where there is no boolean formula known yet.
     unknown_nodes = {n for n in output_nodes}
@@ -565,7 +561,8 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
                           pins_of_interest: Set,
                           constant_input_pins: Dict[Any, bool] = None,
                           differential_inputs: Dict[str, str] = None,
-                          user_input_nets: Set = None
+                          user_input_nets: Set = None,
+                          debug: bool = False
                           ) -> AbstractCircuit:
     """
     Analyze a CMOS transistor network and find boolean expressions for the output signals of the `pins_of_interest`.
@@ -585,6 +582,7 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
         Some inputs cannot automatically be found and must be provided by the user.
         Input nets that connect not only to transistor gates but also source or drains need to be specified manually.
         This can happen for cells containing transmission gates.
+    :param debug: More debugging output.
     :return: (Dict['output pin', boolean formula], Dict['output pin', Memory])
     """
     #
@@ -637,13 +635,14 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
     # print('conductivity_conditions = ', conductivity_conditions)
 
     # Pretty-print the conductivity conditions.
-    print()
-    print('Conductivity conditions')
-    for pin_a, conditions in conductivity_conditions.items():
-        print(' ', pin_a)
-        for pin_b, condition in conditions.items():
-            print('  |-', pin_b, 'when', condition)
-    print()
+    if debug:
+        print()
+        print('Conductivity conditions')
+        for pin_a, conditions in conductivity_conditions.items():
+            print(' ', pin_a)
+            for pin_b, condition in conditions.items():
+                print('  |-', pin_b, 'when', condition)
+        print()
 
     # Substitute inverting inputs by the inverse of the non-inverting input.
     differential_substitution = {
@@ -713,17 +712,17 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
     short_circuit_conditions = {k: simplify_logic(formulas_high[k] & formulas_low[k])
                                 for k in formulas_high.keys()}
 
-    print("Complementary nets:")
+    logger.debug("Complementary nets:")
     for net, f in complementary_formulas.items():
-        print(' ', net, ':', f)
+        logger.debug(' ', net, ':', f)
 
-    print("High impedance conditions:")
+    logger.debug("High impedance conditions:")
     for net, condition in high_impedance_conditions.items():
-        print(' ', net, ':', condition)
+        logger.debug(' ', net, ':', condition)
 
-    print("Short circuit conditions:")
+    logger.debug("Short circuit conditions:")
     for net, condition in short_circuit_conditions.items():
-        print(' ', net, ':', condition)
+        logger.debug(' ', net, ':', condition)
 
     # Create dependency graph to detect feedback loops.
     dependency_graph_high = _formula_dependency_graph(formulas_high)
@@ -762,7 +761,7 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
         :param formulas:
         :return:
         """
-        logger.info("Derive memory from output net: {}".format(memory_output_net))
+        logger.debug("Derive memory from output net: {}".format(memory_output_net))
         # print("Derive memory from output net: {}".format(memory_output_net))
         memory_output_resolved = _resolve_intermediate_variables(formulas, inputs, memory_output_net)
         # print(formulas)
@@ -775,7 +774,6 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
         # print(f"write_condition = {write_condition}")
         oscillation_condition = dn
 
-        debug = True
         if debug:
             # Find expressions for the memory output when the write condition is met.
             # Find all variable assignments such that the write condition is met.
@@ -791,16 +789,17 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
                 data = simplify_logic(memory_output_resolved.subs(model))
                 mem_data.append((model, data))
 
-            # Pretty print write conditions and corresponding write data.
-            if len(mem_data) > 0:
-                print()
-                print("Write data for all write conditions:")
-                model, _ = mem_data[0]
-                vars = list(model.keys())
-                print("\t", "\t".join((str(v) for v in vars)), "\t:", f"data ({memory_output_net})")
-                for model, data in mem_data:
-                    print("\t", "\t".join((str(model[var]) for var in vars)), "\t:", data)
-                print()
+            if debug:
+                # Pretty print write conditions and corresponding write data.
+                if len(mem_data) > 0:
+                    print()
+                    print("Write data for all write conditions:")
+                    model, _ = mem_data[0]
+                    vars = list(model.keys())
+                    print("\t", "\t".join((str(v) for v in vars)), "\t:", f"data ({memory_output_net})")
+                    for model, data in mem_data:
+                        print("\t", "\t".join((str(model[var]) for var in vars)), "\t:", data)
+                    print()
 
         write_data = simplify_with_assumption(write_condition, memory_output_resolved)
         logger.debug(f"write_data = {write_data}")

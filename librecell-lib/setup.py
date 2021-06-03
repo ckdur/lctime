@@ -26,7 +26,7 @@ def readme():
 
 
 setup(name='librecell-lib',
-      version='0.0.11',
+      version='0.0.13',
       description='CMOS standard cell characterization kit.',
       long_description=readme(),
       long_description_content_type="text/markdown",
@@ -61,7 +61,7 @@ setup(name='librecell-lib',
           'networkx>=2.5',  # BSD
           'pyspice==1.4.*',  # GPLv3
           'scipy>=1.5.*',  # BSD
-          'liberty-parser>=0.0.8',  # GPLv3
+          'liberty-parser>=0.0.10',  # GPLv3
           'joblib>=0.14', # BSD-3-Clause
       ],
       zip_safe=False)

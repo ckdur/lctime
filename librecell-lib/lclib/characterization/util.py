@@ -28,7 +28,7 @@ from enum import Enum
 from collections import namedtuple
 from liberty.types import Group
 import logging
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Optional, List
 import re
 
 logger = logging.getLogger(__name__)
@@ -53,6 +53,127 @@ TripPoints = namedtuple("TripPoints", [
 ])
 
 
+class CellConfig:
+    """
+    Characterization settings specific for a single cell.
+    """
+
+    def __init__(self):
+        self.global_conf: CharacterizationConfig = None
+        """
+        General characterization configuration.
+        """
+
+        self.cell_name: str = None
+        """
+        Name of the cell, consistent with the name in the liberty file.
+        """
+
+        self.spice_netlist_file: str = None
+        """
+        Path to SPICE netlist containing the subcircuit of the cell.
+        """
+
+        self.spice_ports: List[str] = None
+        """
+        Ordering of pins of the spice subcircuit that describes this cell.
+        """
+
+        self.complementary_pins: Dict[str, str] = dict()
+        """Mapping of non-inverting pin name to its complementary pin name of differential pairs.
+        Dict[non inverting pin, inverting pin]."""
+
+        self.workingdir: Optional[str] = None
+        "Directory where simulation files are put. Best on a ram-disk."
+
+        self.ground_net: str = 'GND'
+        "Name of the ground net."
+
+        self.supply_net: str = 'VDD'
+        "Name of the power supply net."
+
+
+class CharacterizationConfig:
+    """
+    General settings for the standard-cell characterization runs and simulations.
+    """
+
+    def __init__(self):
+        self.supply_voltage: float = 0.0
+        "Supply voltage in volts."
+
+        self.trip_points: TripPoints = None
+        """
+        Trip-point object which specifies the voltage thresholds of the logical values.
+        """
+
+        self.timing_corner: CalcMode = None
+        """
+        Specify whether to take the maximum, minimum or average capacitance value. (Over all static input combinations).
+        
+        One of TimingCorner.WORST, TimingCorner.BEST or TimingCorner.TYPICAL
+        This defines how the default timing arc is calculated from all the conditional timing arcs.
+        WORST: max
+        BEST: min
+        TYPICAL: np.mean
+        """
+
+        self.setup_statements: List[str] = list()
+        """SPICE statements that are included at the beginning of the simulation. 
+        This should be used for .INCLUDE and .LIB statements."""
+
+        self.time_step: float = 1e-12
+        "Time resolution of the simulation."
+
+        self.temperature = 27
+        "Temperature of the simulated circuit."
+
+        self.workingdir: Optional[str] = None
+        "Directory where simulation files are put. Best on a ram-disk."
+
+        self.debug: bool = False
+        "Enable more verbose debugging output."
+
+        self.debug_plots: bool = False
+        "Enable more verbose debugging output such as plots of the simulations."
+
+        # self.roll_off_factor: float = 0.10
+        # """
+        # OBSOLETE
+        # For characterization of setup/hold times. Must be a positive and non-zero value.
+        #
+        # Larger values lead to smaller setup/hold window but to increased delay.
+        #
+        # Define how much data delay increase is tolerated.
+        # The minimal delay at a sequential cell is achieved when the input signal remains
+        # stable in a very wide window around the clock edge. This enlarges
+        # the required setup and hold time. To make a trade-off, a degradation of the
+        # delay time is accepted by the `roll_off_factor`. If the minimal delay is `d`,
+        # then a delay of `d*(1+roll_off_factor)` is targeted for the characterization
+        # of setup and hold times.
+        # """
+
+        self.max_pushout_time: float = 10e-12
+        """
+        For characterization of setup/hold times. Must be a positive and non-zero value.
+        Larger values lead to smaller setup/hold window but to increased delay.
+        
+        Define how much increase of the clock-to-output delay is tolerated.
+        
+        The minimal delay at a sequential cell is achieved when the input signal remains
+        stable in a very wide window around the clock edge. This enlarges
+        the required setup and hold time. To make a trade-off, a degradation of the 
+        delay time is accepted by the `max_pushout_time`. If the minimal delay is `d`,
+        then a delay of `d + max_pushout_time` is targeted for the characterization
+        of setup and hold times.
+        """
+
+        self.input_current_for_capacitance_measurement = 10000e-9  # [A]
+        """
+        Define the current that is pushed into an input to measure the input capacitance.
+        """
+
+
 #
 # # TODO: Add type hints for Python 3.6.
 # class TripPoints(NamedTuple):
@@ -73,7 +194,7 @@ def is_rising_edge(voltage: np.ndarray, threshold: float = 0.5) -> bool:
     :param threshold: Decision threshold for HIGH/LOW value.
     :return: True iff the signal rises.
     """
-    return voltage[0] < threshold < voltage[-1]
+    return voltage[0] < threshold <= voltage[-1]
 
 
 def is_falling_edge(voltage: np.ndarray, threshold: float = 0.5) -> bool:
@@ -82,13 +203,19 @@ def is_falling_edge(voltage: np.ndarray, threshold: float = 0.5) -> bool:
     :param threshold: Decision threshold for HIGH/LOW value.
     :return: True iff the signal falls.
     """
-    return voltage[0] > threshold > voltage[-1]
+    return voltage[0] > threshold >= voltage[-1]
 
 
-def transition_time(voltage: np.ndarray, time: np.ndarray,
-                    threshold: float, n: int = -1,
-                    assert_one_crossing: bool = False) -> Optional[float]:
+def transition_time(voltage: np.ndarray,
+                    time: np.ndarray,
+                    threshold: float,
+                    n: int = -1,
+                    assert_one_crossing: bool = False,
+                    find_falling_edges: bool = True,
+                    find_rising_edges: bool = True) -> Optional[float]:
     """ Find time of the n-th event when the signal crosses the threshold.
+    :param find_rising_edges: Detect rising edges. Default is `True`.
+    :param find_falling_edges: Detect falling edges. Default is `True`.
     :param voltage: np.ndarray holding voltage values.
     :param time: np.ndarray holding time values.
     :param threshold:
@@ -104,6 +231,10 @@ def transition_time(voltage: np.ndarray, time: np.ndarray,
     # 1: crossing from negative to positive
     # -1: crossing from positive to negative
     transitions = np.sign(np.diff(np.sign(y_shifted)))
+    if not find_falling_edges:
+        transitions[transitions == -1] = 0 # Disable falling edges.
+    if not find_rising_edges:
+        transitions[transitions == 1] = 0 # Disable rising edges.
     index = np.arange(len(transitions))
     # Get indices of crossings.
     transition_indices = index[transitions != 0]
@@ -258,8 +389,9 @@ def find_differential_inputs_by_pattern(patterns: Iterable[str], input_pins: Ite
                 inv_name = inverted_name_template.replace("%", basename)
                 if pin in differential_inputs:
                     # Sanity check.
-                    logger.error(f"Multiple matches for non-inverting input '{pin}'.")
-                    exit(1)
+                    msg = f"Multiple matches for non-inverting input '{pin}'."
+                    logger.error(msg)
+                    raise Exception(msg)
                 # Store the mapping.
                 differential_inputs[pin] = inv_name
 
