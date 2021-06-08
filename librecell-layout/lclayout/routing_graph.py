@@ -202,7 +202,16 @@ def add_via_nodes(graph: nx.Graph, tech) -> nx.Graph:
     new_graph = nx.Graph()
 
     for a, b, data in graph.edges(data=True):
-        new_graph.add_edge(a, b, **data)
+        via_layer = data['layer']
+        weight = data.get('weight', 0)
+        _, location = a  # Via location.
+        via_node = via_layer, location
+
+        new_data = data.copy()
+        new_data['weight'] = weight / 2
+
+        new_graph.add_edge(a, via_node, **new_data)
+        new_graph.add_edge(via_node, b, **new_data)
 
     return new_graph
 
