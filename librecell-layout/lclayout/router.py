@@ -376,7 +376,7 @@ class DefaultRouter():
             return routing_trees
         else:
             logger.info("Start routing")
-            # For each routing node find other nodes that are close enough that they cannot be used
+            # For each routing node find other nodes that are close enough such that they cannot be used
             # both for routing. This is used to avoid spacing violations during routing.
             logger.debug("Find conflicting nodes.")
             conflicts = dict()
@@ -400,6 +400,8 @@ class DefaultRouter():
 
                                 # Find nodes that are closer than the minimal spacing.
                                 # conflict_points = grid.neigborhood(point, margin, norm_ord=1)
+                                # TODO: This proximity search is very slow.
+                                # TODO: Put nodes into a data structure that allows faster nearest-neighbour search.
                                 potential_conflicts = [x for x in graph if x[0] == other_layer]
                                 conflict_points = [p for (_, p) in potential_conflicts
                                                    if numpy.linalg.norm(numpy.array(p) - numpy.array(point),
