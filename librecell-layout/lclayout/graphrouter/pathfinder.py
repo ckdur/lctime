@@ -37,8 +37,7 @@ class PathFinderGraphRouter(GraphRouter):
     """
 
     def __init__(self,
-                 detail_router: SignalRouter,
-                 is_virtual_edge_fn=None):
+                 detail_router: SignalRouter):
         self.detail_router = detail_router
 
     def route(self,
