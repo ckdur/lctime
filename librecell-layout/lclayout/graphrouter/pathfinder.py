@@ -49,6 +49,25 @@ class PathFinderGraphRouter(GraphRouter):
               equivalent_nodes: Optional[Dict[Any, AbstractSet[Any]]] = None,
               is_virtual_node_fn=None
               ) -> Dict[Any, nx.Graph]:
+        """ Route multiple signals in the graph.
+        Based on PathFinder algorithm.
+
+        Parameters
+        ----------
+        :param is_virtual_node_fn: A function which tells wether a node is 'virtual'.
+        :param equivalent_nodes: An optional mapping from a node n to a set of nodes which are equivalent to the node n.
+            This is used for the HVGraphRouter which splits some nodes into multiple nodes which are mutually exclusive.
+        :param graph : networkx.Graph
+                        Graph representing the routing grid.
+        :param signals : Dict[node name, List[node]]
+                        Signals to be routed. Each signal is represented by its terminal nodes.
+        :param reserved_nodes: An optional dict which specifies nodes that are reserved for a specific net.
+        Dict[net_name, set of nodes].
+        :param node_conflict: Dict[node, Set[node]]
+        Tells which other nodes are blocked by a node. A node might block its direct neigbhours to ensure minimum spacing.
+
+        :returns : A list of `networkx.Graph`s representing the routes of each signal.
+        """
         return _route(self.detail_router,
                       graph,
                       signals=signals,
