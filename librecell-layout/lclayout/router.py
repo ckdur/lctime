@@ -60,6 +60,61 @@ def _draw_routing_tree(shapes: Dict[str, pya.Shapes],
                 s = shapes[l1].insert(path)
                 s.set_property('net', signal_name)
 
+            # else:
+            #     # l1 != l1 -> this looks like a via
+            #     assert x1 == x2
+            #     assert y1 == y2
+            #     # Draw via
+            #     via_layer = via_layers[l1][l2]['layer']
+            #     logger.debug('Draw via: {} ({}, {})'.format(via_layer, x1, y1))
+            #
+            #     via_width = tech.via_size[via_layer]
+            #
+            #     if debug_routing_graph:
+            #         via_width = min(tech.routing_grid_pitch_x, tech.routing_grid_pitch_y) // 16
+            #
+            #     w = via_width // 2
+            #     via = pya.Box(pya.Point(x1 - w, y1 - w),
+            #                   pya.Point(x1 + w, y1 + w))
+            #     via_shape = shapes[via_layer].insert(via)
+            #     # via_shape.set_property('net', signal_name)
+            #
+            #     # Ensure minimum via enclosure.
+            #     if not debug_routing_graph:
+            #         for l in (l1, l2):
+            #             # TODO: Check on which sides minimum enclosure is not yet satisfied by some wire.
+            #
+            #             neighbors = rt.neighbors((l, (x1, y1)))
+            #             neighbors = [n for n in neighbors if n[0] == l]
+            #
+            #             w_ext = via_width // 2 + tech.minimum_enclosure.get((l, via_layer), 0)
+            #             w_noext = via_width // 2
+            #
+            #             # Check on which sides the enclosure must be extended.
+            #             # Some sides will already be covered by a routing wire.
+            #             ext_right = w_ext
+            #             ext_upper = w_ext
+            #             ext_left = w_ext
+            #             ext_lower = w_ext
+            #             # TODO
+            #             # for _, (n_x, n_y) in neighbors:
+            #             #     if n_x == x1:
+            #             #         if n_y < y1:
+            #             #             ext_lower = w_noext
+            #             #         if n_y > y1:
+            #             #             ext_upper = w_noext
+            #             #     if n_y == y1:
+            #             #         if n_x < x1:
+            #             #             ext_left = w_noext
+            #             #         if n_x > x1:
+            #             #             ext_right = w_noext
+            #
+            #             enc = pya.Box(
+            #                 pya.Point(x1 - ext_left, y1 - ext_lower),
+            #                 pya.Point(x1 + ext_right, y1 + ext_upper)
+            #             )
+            #             s = shapes[l].insert(enc)
+            #             s.set_property('net', signal_name)
 
     # Create lookup-table from 'via layer name' to 'lower and upper metal layer name'.
     via_layer_names = set()
@@ -394,6 +449,33 @@ class DefaultRouter():
             # both for routing. This is used to avoid spacing violations during routing.
             logger.debug("Find conflicting nodes.")
             conflicts = dict()
+
+            # Insert spacing from via nodes to metal.
+            # This captures the spacing requirements caused by the via enclosure.
+            spacing_graph = spacing_graph.copy()
+            for (l1, l2, data) in via_layers.edges(data=True):
+                via_layer = data['layer']
+                via_width = tech.via_size[via_layer]
+                for l in (l1, l2):
+                    w_ext = via_width // 2 + tech.minimum_enclosure.get((l, via_layer), 0)
+                    # Get min spacing on the metal layer.
+                    if l in spacing_graph and l in spacing_graph[l]:
+                        metal_spacing = spacing_graph[l][l]['min_spacing']
+                        via_to_metal_spacing = metal_spacing + w_ext
+
+                        # Update the spacing graph. Take the max if an entry already exists.
+                        if l in spacing_graph and via_layer in spacing_graph[l]:
+                            existing_via_to_metal_spacing = spacing_graph[l][via_layer]['min_spacing']
+                            via_to_metal_spacing = max(via_to_metal_spacing, existing_via_to_metal_spacing)
+                        spacing_graph.add_edge(via_layer, l, min_spacing=via_to_metal_spacing)
+
+                        # Create via-to-via spacing rule.
+                        via_to_via_spacing = metal_spacing + w_ext * 2
+                        if via_layer in spacing_graph and via_layer in spacing_graph[via_layer]:
+                            existing_via_to_via_spacing = spacing_graph[via_layer][via_layer]['min_spacing']
+                            via_to_via_spacing = max(via_to_via_spacing, existing_via_to_via_spacing)
+                        spacing_graph.add_edge(via_layer, via_layer, min_spacing=via_to_via_spacing)
+
             # Loop through all nodes in the routing graph graph.
             for n in graph:
                 # Skip virtual nodes which have no physical representation.
