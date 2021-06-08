@@ -28,6 +28,13 @@ logger = logging.getLogger(__name__)
 
 
 class PathFinderGraphRouter(GraphRouter):
+    """
+    Multi-signal router.
+    Takes a single-signal router `detail_router` and combines it with a resource negotiating algorithm
+    for routing multiple signals.
+
+    See: http://www.cecs.uci.edu/~papers/compendium94-03/papers/1995/fpga95/pdffiles/6a.pdf
+    """
 
     def __init__(self,
                  detail_router: SignalRouter,
