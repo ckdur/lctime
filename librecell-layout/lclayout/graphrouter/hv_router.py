@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 
 
 class HVGraphRouter(GraphRouter):
+    """
+    Wrapps around a GraphRouter and inserts additional edges and weights between edges of different orientation.
+    This penalizes changes between vertical and horizontal edges.
+    """
 
     def __init__(self, sub_graphrouter: GraphRouter, orientation_change_penalty: float = 1):
         self.sub_graphrouter = sub_graphrouter

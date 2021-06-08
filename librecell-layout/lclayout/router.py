@@ -1,13 +1,8 @@
 from .graphrouter.graphrouter import GraphRouter
-from .graphrouter.hv_router import HVGraphRouter
-from .graphrouter.pathfinder import PathFinderGraphRouter
-from .graphrouter.signal_router import DijkstraRouter, ApproxSteinerTreeRouter
-from collections import Counter, defaultdict
 from .routing_graph import *
 from . import tech_util
 from .lvs import lvs
 import networkx as nx
-from itertools import chain
 import numpy
 import klayout.db as db
 
