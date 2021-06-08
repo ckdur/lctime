@@ -228,8 +228,9 @@ def _route(detail_router: SignalRouter,
             Gs[net] = G2
 
     # TODO: just use detail_router and let caller decide whether to use MultiViaRouter or not.
-    multi_via_router = MultiViaRouter(detail_router, node_conflict)
-    # multi_via_router = detail_router  # Don't use multi via router.
+    # TODO: Multi-via routing is currently not supported.
+    #multi_via_router = MultiViaRouter(detail_router, node_conflict)
+    multi_via_router = detail_router  # Don't use multi via router.
 
     history_cost_weight = 1
     node_present_sharing_cost_increment = 10
@@ -272,11 +273,17 @@ def _route(detail_router: SignalRouter,
             nodes = set(chain(*(node_conflict.get(n, {}) for n in st.nodes)))
             nodes.update(st.nodes)
 
-            for n in st.nodes:
-                for o in node_conflict.get(n, {n}):
-                    if o not in node_present_sharing_cost:
-                        node_present_sharing_cost[o] = 0
-                    node_present_sharing_cost[o] += 1
+            # for n in st.nodes:
+            #     for o in node_conflict.get(n, {n}):
+            #         if o not in node_present_sharing_cost:
+            #             node_present_sharing_cost[o] = 0
+            #         node_present_sharing_cost[o] += 1
+
+            # Increase the sharing costs for all used nodes.
+            for o in nodes:
+                if o not in node_present_sharing_cost:
+                    node_present_sharing_cost[o] = 0
+                node_present_sharing_cost[o] += 1
 
         # Detect node collisions
 

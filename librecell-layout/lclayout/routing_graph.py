@@ -190,6 +190,23 @@ def remove_illegal_routing_edges(graph: nx.Graph, shapes: Dict[Any, db.Shapes], 
     graph.remove_nodes_from(unconnected)
 
 
+def add_via_nodes(graph: nx.Graph, tech) -> nx.Graph:
+    """
+    Split all inter-layer edges by inserting a node which represents the via.
+    This is used to define conflicts between vias and metal layers and allows
+    to model the conflicts that are caused by the via-enclosure.
+    :param graph:
+    :param tech:
+    :return:
+    """
+    new_graph = nx.Graph()
+
+    for a, b, data in graph.edges(data=True):
+        new_graph.add_edge(a, b, **data)
+
+    return new_graph
+
+
 def remove_existing_routing_edges(G: nx.Graph, shapes: Dict[Any, db.Shapes], tech) -> None:
     """ Remove edges in G that are already routed by a shape in `shapes`.
     :param G: Routing graph to be modified.

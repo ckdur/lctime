@@ -272,6 +272,8 @@ class DefaultRouter():
         # Remove pre-routed edges from graph.
         remove_existing_routing_edges(graph, shapes, tech)
 
+        graph = add_via_nodes(graph, tech)
+
         # Create a list of terminal areas: [(net, [(layer, terminal_coord), ...]), ...]
         terminals_by_net = extract_terminal_nodes(graph, shapes, tech)
 
