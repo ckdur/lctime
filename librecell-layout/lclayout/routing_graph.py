@@ -127,7 +127,7 @@ def _get_routing_node_locations_per_layer(g: nx.Graph) -> Dict[Any, Set[Tuple[in
 
 def remove_illegal_routing_edges(graph: nx.Graph, shapes: Dict[Any, db.Shapes], tech) -> None:
     """ Remove nodes and edges from  G that would conflict
-    with predefined `shapes`.
+    with predefined `shapes` as well as with shapes of neighbour cells.
     :param graph: routing graph.
     :param shapes: Dict[layer name, db.Shapes]
     :param tech: module containing technology information
@@ -140,12 +140,38 @@ def remove_illegal_routing_edges(graph: nx.Graph, shapes: Dict[Any, db.Shapes], 
 
     # Get a dict mapping layer names to db.Regions
     regions = {l: db.Region(s) for l, s in shapes.items()}
+
+    # Ensure that no spacing rules are violated when cells are abutted together.
+    # This is done by filling all layers around the cell.
+    for layer, region in regions.items():
+        if layer in spacing_graph:
+            # Find the largest min-spacing to any other layer.
+            largest_min_spacing = max((spacing_graph[layer][other]['min_spacing'] for other in spacing_graph[layer]))
+            half_spacing = largest_min_spacing // 2 # Spacing to the cell outline.
+
+            cell_region = db.Region()
+            cell_region.insert(shapes[l_abutment_box])
+            cell_region += region
+
+            # Create the surrounding shape around the cell by taking the bounding box and enlarging it slightly.
+            surrounding = db.Region()
+            surrounding.insert(cell_region.bbox())
+            surrounding.size(10 + half_spacing)
+
+            # Create a hole into the surrounding. The hole marks the space allowed for routing.
+            # The hole is enlarged by the half spacing because it is assumed that neighbour cells
+            # will also follow the half-spacing rule.
+            surrounding -= cell_region.sized(half_spacing)
+
+            # Insert the surrounding shapes.
+            region.insert(surrounding)
+
     illegal_edges = set()
     # For each edge in the graph check if it conflicts with an existing shape.
     # Remember the edge if it is in conflict.
     for e in graph.edges:
         (l1, p1), (l2, p2) = e
-        is_via = l1 != l2
+        is_via = l1 != l2  # TODO: Vias are now separate nodes.
 
         if not is_via:
             layer = l1
@@ -164,6 +190,7 @@ def remove_illegal_routing_edges(graph: nx.Graph, shapes: Dict[Any, db.Shapes], 
         else:
             assert p1 == p2, "End point coordinates of a via edge must match."
             layer = via_layers[l1][l2]['layer']
+
             if layer in spacing_graph:
                 other_layers = spacing_graph[layer]
                 for other_layer in other_layers:
