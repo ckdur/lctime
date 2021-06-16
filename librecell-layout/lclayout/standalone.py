@@ -516,34 +516,37 @@ class LcLayout:
 
             # Clean DRC violations that are not handled above.
 
-            def fill_all_notches():
+            def fill_all_notches(shapes):
                 # Remove notches on all layers.
-                for layer, s in self.shapes.items():
+                for layer, s in shapes.items():
                     if layer in tech.minimum_notch:
 
+                        r = pya.Region(s)
+                        r.merge()
+
                         if layer in tech.connectable_layers:
-                            r = pya.Region(s)
                             filled = fill_notches(r, tech.minimum_notch[layer])
                             s.insert(filled)
                         else:
                             # Remove notches per polygon to avoid connecting independent shapes.
                             s_filled = pya.Shapes()
-                            for shape in s.each():
-                                if not shape.is_text:
-                                    r = pya.Region(shape.polygon)
+                            for shape in r.each():
+                                region = pya.Region()
+                                region += shape
 
-                                    filled = fill_notches(r, tech.minimum_notch[layer])
-                                    s_filled.insert(filled)
+                                filled = fill_notches(region, tech.minimum_notch[layer])
+                                s_filled.insert(filled)
 
                             s.insert(s_filled)
 
-                    _merge_all_layers(self.shapes)
+                _merge_all_layers(shapes)
 
             logger.debug("Fill notches.")
+
             # Fill notches that violate a notch rule.
-            fill_all_notches()
+            fill_all_notches(self.shapes)
             # Do a second time because first iteration could have introduced new notch violations.
-            fill_all_notches()
+            fill_all_notches(self.shapes)
 
             # Fix minimum area violations.
             fix_min_area(tech, self.shapes, debug=self.debug_smt_solver)
