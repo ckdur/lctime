@@ -331,7 +331,7 @@ class DefaultRouter():
         # Construct two dimensional grid which defines the routing graph on a single layer.
         grid = Grid2D((tech.grid_offset_x, tech.grid_offset_y),
                       (
-                          tech.grid_offset_x + cell_width - tech.grid_offset_x,
+                          cell_width,
                           tech.grid_offset_y + tech.unit_cell_height),
                       (tech.routing_grid_pitch_x, tech.routing_grid_pitch_y))
 
