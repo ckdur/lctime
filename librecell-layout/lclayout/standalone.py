@@ -377,6 +377,7 @@ class LcLayout:
 
             logger.warning("Well-taps could not be routed.")
             return
+            # TODO: If not all well-taps could be routed, just place the one that can be routed.
 
             self.shapes[l_nplus].clear()
             self.shapes[l_pplus].clear()
