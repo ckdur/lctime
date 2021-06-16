@@ -51,6 +51,7 @@ except ImportError as e:
 
 logger = logging.getLogger(__name__)
 
+
 class DuplicateFilter(logging.Filter):
     """
     Hide duplicated log messages.
@@ -66,6 +67,7 @@ class DuplicateFilter(logging.Filter):
             self.last_log = current_log
             return True
         return False
+
 
 def _merge_all_layers(shapes: Dict[str, db.Shapes]):
     """
@@ -414,7 +416,7 @@ class LcLayout:
                 tap_locations = list(ptap_locations.each_merged())
                 for i, p in enumerate(tap_locations):
                     self.shapes[l_nplus].clear()
-                    logger.info(f"Route tap {i+1}/{len(tap_locations)}.")
+                    logger.info(f"Route tap {i + 1}/{len(tap_locations)}.")
                     ptap = self.shapes[l_pplus].insert(p)
                     ptap.set_property('net', gnd_net)
                     success = self._08_02_2_try_route_welltaps(gnd_net, vdd_net)
@@ -537,6 +539,7 @@ class LcLayout:
 
                     _merge_all_layers(self.shapes)
 
+            logger.debug("Fill notches.")
             # Fill notches that violate a notch rule.
             fill_all_notches()
             # Do a second time because first iteration could have introduced new notch violations.

@@ -13,6 +13,10 @@
 #
 import klayout.db as pya
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def fill_notches(region: pya.Region, minimum_notch: int) -> pya.Region:
     """ Fill notches in a pya.Region.
@@ -20,12 +24,16 @@ def fill_notches(region: pya.Region, minimum_notch: int) -> pya.Region:
     :param minimum_notch:
     :return:
     """
+    merged = region.merged()
 
-    notches = region.notch_check(minimum_notch)
-    spaces = region.space_check(minimum_notch)
+    # Find notches.
+    notches = merged.notch_check(minimum_notch)
+    spaces = merged.space_check(minimum_notch)
     notches = list(notches) + list(spaces)
     s = pya.Shapes()
     s.insert(region)
+
+    # Fill each notch with a rectangle.
     for edge_pair in notches:
         a, b = edge_pair.first, edge_pair.second
         # Find smaller edge (a)
@@ -39,6 +47,8 @@ def fill_notches(region: pya.Region, minimum_notch: int) -> pya.Region:
 
         # Take the smaller box.
         min_box = min([box1, box2], key=lambda b: b.area())
+
+        logger.debug(f"Fill notch: {min_box}")
 
         s.insert(min_box)
 
