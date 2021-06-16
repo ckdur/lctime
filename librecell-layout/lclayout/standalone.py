@@ -211,7 +211,7 @@ class LcLayout:
         # Setup layers.
         self.shapes = dict()
         for name, (num, purpose) in layermap.items():
-            layer = self.layout.layer(num, purpose)
+            layer = self.layout.layer(num, purpose, name)
             self.shapes[name] = self.top_cell.shapes(layer)
 
         if self.debug_routing_graph:

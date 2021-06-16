@@ -49,7 +49,43 @@ def _decompose_region(region: db.Region, ignore_non_rectilinear: bool = False) -
     return rectangles
 
 
-def generate_lef_macro(cell_name: str,
+def region_to_geometries(region: db.Region, f: float, use_rectangles_only: bool = True) -> List:
+    """
+    Convert a region into a list of LEF geometries.
+    :param use_rectangles_only: Decompose all polygons into rectangles.
+    :param region:
+    :param f: Scale the coordinates by this factor.
+    :return:
+    """
+    region.merge()
+    if use_rectangles_only:
+        # Decompose into rectangles.
+        boxes = _decompose_region(region)
+        region = db.Region()
+        region.insert(boxes)
+
+    geometries = []
+    for p in region.each():
+        polygon = p.to_simple_polygon()
+
+        box = polygon.bbox()
+        is_box = db.SimplePolygon(box) == polygon
+
+        if is_box:
+            rect = lef.Rect((box.p1.x * f, box.p1.y * f), (box.p2.x * f, box.p2.y * f))
+            geometries.append(rect)
+        else:
+            # Port is a polygon
+            # Convert `db.Point`s into LEF points.
+            points = [(p.x * f, p.y * f) for p in polygon.each_point()]
+            poly = lef.Polygon(points)
+            geometries.append(poly)
+    return geometries
+
+
+def generate_lef_macro(layout: db.Layout,
+                       output_map: Dict[str, str],
+                       cell_name: str,
                        pin_geometries: Dict[str, List[Tuple[str, db.Shape]]],
                        pin_direction: Dict[str, lef.Direction],
                        pin_use: Dict[str, lef.Use],
@@ -85,29 +121,8 @@ def generate_lef_macro(cell_name: str,
             # Convert all non-regions into a region
             region = db.Region()
             region.insert(shape)
-            region.merge()
-            if use_rectangles_only:
-                # Decompose into rectangles.
-                boxes = _decompose_region(region)
-                region = db.Region()
-                region.insert(boxes)
 
-            geometries = []
-            for p in region.each():
-                polygon = p.to_simple_polygon()
-
-                box = polygon.bbox()
-                is_box = db.SimplePolygon(box) == polygon
-
-                if is_box:
-                    rect = lef.Rect((box.p1.x * f, box.p1.y * f), (box.p2.x * f, box.p2.y * f))
-                    geometries.append(rect)
-                else:
-                    # Port is a polygon
-                    # Convert `db.Point`s into LEF points.
-                    points = [(p.x * f, p.y * f) for p in polygon.each_point()]
-                    poly = lef.Polygon(points)
-                    geometries.append(poly)
+            geometries = region_to_geometries(region, f)
 
             layers.append((lef.Layer(layer_name), geometries))
 
@@ -133,6 +148,26 @@ def generate_lef_macro(cell_name: str,
                       )
         pins.append(pin)
 
+    # Store all routing shapes as 'obstructions'.
+    obstruction_layers = sorted(output_map.keys())
+    cell_id = layout.cell_by_name(cell_name)
+    cell = layout.cell(cell_id)
+    assert isinstance(cell, db.Cell)
+    layer_infos = list(layout.layer_infos())
+    layer_infos = {i.name: i for i in layer_infos}
+    obstructions = []
+    for obstruction_layer in obstruction_layers:
+        layer_info = layer_infos[obstruction_layer]
+        assert layer_info is not None
+        assert isinstance(layer_info, db.LayerInfo)
+        shapes = cell.shapes(layout.layer(layer_info))
+
+        region = db.Region(shapes)
+        geometries = region_to_geometries(region, f)
+
+        obs = lef.Obstruction(lef.Layer(obstruction_layer), geometries)
+        obstructions.append(obs)
+
     macro = lef.Macro(
         name=cell_name,
         macro_class=lef.MacroClass.CORE,
@@ -141,7 +176,7 @@ def generate_lef_macro(cell_name: str,
         symmetry={lef.Symmetry.X, lef.Symmetry.Y, lef.Symmetry.R90},
         site=site,
         pins=pins,
-        obstructions=[]
+        obstructions=obstructions
     )
 
     return macro
@@ -150,19 +185,19 @@ def generate_lef_macro(cell_name: str,
 class LefWriter(Writer):
 
     def __init__(self,
-                 output_map: Dict[str, Tuple[int, int]],
+                 obstruction_output_map: Dict[str, str],
                  site: str = "CORE",
                  db_unit: float = 1e-6,
                  use_rectangles_only: bool = False):
         """
 
-        :param output_map:
+        :param obstruction_output_map: Mapping from lclayout layer names to output layer names of obstructions.
         :param site: SITE name.
         :param db_unit: Database unit in meters. Default is 1um (1e-6 m)
         :param use_rectangles_only: Convert all polygons into rectangles. Non-rectilinear shapes are dropped.
         """
         self.db_unit = db_unit
-        self.output_map = output_map
+        self.obstruction_output_map = obstruction_output_map
         self.scaling_factor = 1
         self.use_rectangles_only = use_rectangles_only
         self.site = site
@@ -173,8 +208,8 @@ class LefWriter(Writer):
                      top_cell: db.Cell,
                      output_dir: str,
                      ) -> None:
-        # Re-map layers
-        layout = remap_layers(layout, self.output_map)
+        # # Re-map layers
+        # layout = remap_layers(layout, self.output_map)
 
         # Compute correct scaling factor.
         # klayout expects dbu to be in µm, the tech file takes it in meters.
@@ -185,7 +220,9 @@ class LefWriter(Writer):
         # Write LEF
         # Create and populate LEF Macro data structure.
         # TODO: pass correct USE and DIRECTION
-        lef_macro = generate_lef_macro(top_cell.name,
+        lef_macro = generate_lef_macro(layout,
+                                       self.obstruction_output_map,
+                                       top_cell.name,
                                        pin_geometries=pin_geometries,
                                        pin_use=None,
                                        pin_direction=None,

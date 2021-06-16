@@ -99,7 +99,12 @@ output_writers = [
 
     LefWriter(
         db_unit=1e-6,  # microns
-        output_map=output_map,
+        obstruction_output_map={
+            l_via1: 'm2contact',
+            l_poly: 'polysilicon',
+            l_metal1: 'metal1',
+            l_metal2: 'metal2',
+        },
         site="CORE"
     ),
 
