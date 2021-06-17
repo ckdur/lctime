@@ -79,7 +79,6 @@ class DefaultTransistorLayout(TransistorLayout):
         and design rules.
         :param abstract_transistor: Netlist representation of the transistor.
         :param location: Location in the cell matrix.
-        :param distance_to_outline: TODO: This should be put into the `tech`.
         :param tech: Technology specific designrules.
         """
 

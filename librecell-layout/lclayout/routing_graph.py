@@ -13,7 +13,7 @@
 #
 import networkx as nx
 import klayout.db as db
-from itertools import count
+from itertools import count, product
 from collections import defaultdict
 
 from .layout.grid_helpers import *
@@ -30,9 +30,86 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def create_routing_graph_base(grid: Grid2D, tech) -> nx.Graph:
+# def create_routing_graph_base(grid: Grid2D, tech) -> nx.Graph:
+#     """ Construct the full mesh of the routing graph.
+#     :param grid: grid points
+#     :param tech: module containing technology information
+#     :return: nx.Graph
+#     """
+#     logging.debug('Create routing graph.')
+#
+#     # Create routing graph.
+#
+#     # Create nodes and vias.
+#     G = nx.Graph()
+#
+#     # Keep track of missing weights to output a log warning.
+#     missing_via_weights = set()
+#
+#     # Create nodes on routing layers.
+#     for layer, directions in tech.routing_layers.items():
+#         for p in grid:
+#             n = layer, p
+#             G.add_node(n)
+#
+#     # Create via edges.
+#     for l1, l2, data in via_layers.edges(data=True):
+#         via_layer = data['layer']
+#         for p in grid:
+#             n1 = (l1, p)
+#             n2 = (l2, p)
+#
+#             weight = tech.via_weights.get((l1, l2))
+#             if weight is None:
+#                 weight = tech.via_weights.get((l2, l1))
+#                 if weight is None:
+#                     missing_via_weights.add((l1, l2))
+#                     weight = 0
+#
+#             multi_via = tech.multi_via.get((l1, l2))
+#             if multi_via is None:
+#                 multi_via = tech.multi_via.get((l2, l1), 1)
+#
+#             # Create edge: n1 -- n2
+#             G.add_edge(n1, n2,
+#                        weight=weight,
+#                        multi_via=multi_via,
+#                        layer=via_layer
+#                        )
+#
+#     for (l1, l2) in missing_via_weights:
+#         logger.warning(f"No via weight specified from layer '{l1}' to '{l2}'.")
+#
+#     # Create intra layer routing edges.
+#     for layer, directions in tech.routing_layers.items():
+#         for p1 in grid:
+#             x1, y1 = p1
+#             x2 = x1 + tech.routing_grid_pitch_x
+#             y2 = y1 + tech.routing_grid_pitch_y
+#
+#             # ID of the graph node.
+#             n = layer, p1
+#
+#             # Horizontal edge.
+#             if 'h' in directions:
+#                 n_right = layer, (x2, y1)
+#                 if n_right in G.nodes:
+#                     weight = tech.weights_horizontal[layer] * abs(x2 - x1)
+#                     G.add_edge(n, n_right, weight=weight, orientation='h', layer=layer)
+#
+#             # Vertical edge.
+#             if 'v' in directions:
+#                 n_upper = layer, (x1, y2)
+#                 if n_upper in G.nodes:
+#                     weight = tech.weights_vertical[layer] * abs(y2 - y1)
+#                     G.add_edge(n, n_upper, weight=weight, orientation='v', layer=layer)
+#
+#     assert nx.is_connected(G)
+#     return G
+
+
+def create_routing_graph_base_v2(xs: List[int], ys: List[int], tech) -> nx.Graph:
     """ Construct the full mesh of the routing graph.
-    :param grid: grid points
     :param tech: module containing technology information
     :return: nx.Graph
     """
@@ -48,14 +125,14 @@ def create_routing_graph_base(grid: Grid2D, tech) -> nx.Graph:
 
     # Create nodes on routing layers.
     for layer, directions in tech.routing_layers.items():
-        for p in grid:
+        for p in product(xs, ys):
             n = layer, p
             G.add_node(n)
 
     # Create via edges.
     for l1, l2, data in via_layers.edges(data=True):
         via_layer = data['layer']
-        for p in grid:
+        for p in product(xs, ys):
             n1 = (l1, p)
             n2 = (l2, p)
 
@@ -82,27 +159,34 @@ def create_routing_graph_base(grid: Grid2D, tech) -> nx.Graph:
 
     # Create intra layer routing edges.
     for layer, directions in tech.routing_layers.items():
-        for p1 in grid:
-            x1, y1 = p1
-            x2 = x1 + tech.routing_grid_pitch_x
-            y2 = y1 + tech.routing_grid_pitch_y
 
-            # ID of the graph node.
-            n = layer, p1
+        # Horizontal edge.
+        if 'h' in directions:
+            for x1, x2 in zip(xs, xs[1:]):
+                for y1 in ys:
+                    p1 = x1, y1
 
-            # Horizontal edge.
-            if 'h' in directions:
-                n_right = layer, (x2, y1)
-                if n_right in G.nodes:
-                    weight = tech.weights_horizontal[layer] * abs(x2 - x1)
-                    G.add_edge(n, n_right, weight=weight, orientation='h', layer=layer)
+                    # ID of the graph node.
+                    n = layer, p1
 
-            # Vertical edge.
-            if 'v' in directions:
-                n_upper = layer, (x1, y2)
-                if n_upper in G.nodes:
-                    weight = tech.weights_vertical[layer] * abs(y2 - y1)
-                    G.add_edge(n, n_upper, weight=weight, orientation='v', layer=layer)
+                    n_right = layer, (x2, y1)
+                    if n_right in G.nodes:
+                        weight = tech.weights_horizontal[layer] * abs(x2 - x1)
+                        G.add_edge(n, n_right, weight=weight, orientation='h', layer=layer)
+
+        # Vertical edge.
+        if 'v' in directions:
+            for x1 in xs:
+                for y1, y2 in zip(ys, ys[1:]):
+                    p1 = x1, y1
+
+                    # ID of the graph node.
+                    n = layer, p1
+
+                    n_upper = layer, (x1, y2)
+                    if n_upper in G.nodes:
+                        weight = tech.weights_vertical[layer] * abs(y2 - y1)
+                        G.add_edge(n, n_upper, weight=weight, orientation='v', layer=layer)
 
     assert nx.is_connected(G)
     return G
@@ -147,7 +231,7 @@ def remove_illegal_routing_edges(graph: nx.Graph, shapes: Dict[Any, db.Shapes], 
         if layer in spacing_graph:
             # Find the largest min-spacing to any other layer.
             largest_min_spacing = max((spacing_graph[layer][other]['min_spacing'] for other in spacing_graph[layer]))
-            half_spacing = largest_min_spacing // 2 # Spacing to the cell outline.
+            half_spacing = largest_min_spacing // 2  # Spacing to the cell outline.
 
             cell_region = db.Region()
             cell_region.insert(shapes[l_abutment_box])
@@ -413,55 +497,56 @@ def extract_terminal_nodes(graph: nx.Graph,
 #         else:
 #             logger.debug(f"No neighbour node for terminal with net `{net}` of transistor {transistor.name}.")
 
-
-def embed_transistor_terminal_nodes(G: nx.Graph,
-                                    transistor_layouts: Dict[Transistor, TransistorLayout],
-                                    tech) -> List[Tuple[str, List[Tuple[str, Tuple[int, int]]]]]:
-    """ Embed the terminal nodes of a the transistors into the routing graph.
-    Modifies `G` and `terminals_by_net`
-    :param G: The routing graph.
-    :param transistor_layouts: List[TransistorLayout]
-    :param tech: module containing technology information
-    :return: Returns terminal nodes as a list like List[(netname, [(layer, coordinate), ...])]
-    """
-    terminals_by_net = []
-    # Connect terminal nodes of transistor gates in G.
-    for transistor, t_layout in transistor_layouts.items():
-        terminals = t_layout.terminal_nodes()
-        for net, ts in terminals.items():
-            coords = []  # Coordinates of inserted terminal nodes.
-            layer = None
-            for t in ts:
-                layer, (x, y) = t
-
-                # logger.debug(f"Terminal node {net} {layer} {t}")
-
-                # Insert terminal into G.
-                next_x = grid_round(x, tech.routing_grid_pitch_x, tech.grid_offset_x)
-
-                assert next_x == x, Exception("Terminal node not x-aligned.")
-
-                x_aligned_nodes = [(l, (_x, y)) for l, (_x, y) in G if l == layer and _x == x]
-
-                def dist(a, b):
-                    _, (x1, y1) = a
-                    _, (x2, y2) = b
-                    return (x1 - x2) ** 2 + (y1 - y2) ** 2
-
-                if x_aligned_nodes:
-                    neighbour_node = min(x_aligned_nodes, key=lambda n: dist(n, t))
-
-                    # TODO: weight proportional to gate width?
-                    G.add_edge(t, neighbour_node, weight=1000, wire_width=tech.gate_length)
-                    assert layer is not None
-                    coords.append((layer, (x, y)))
-                else:
-                    logger.debug(f"No neighbour node for terminal with net `{net}` of transistor {transistor.name}.")
-
-            if coords:
-                terminals_by_net.append((net, coords))
-
-    return terminals_by_net
+#
+# def embed_transistor_terminal_nodes(G: nx.Graph,
+#                                     transistor_layouts: Dict[Transistor, TransistorLayout],
+#                                     tech) -> List[Tuple[str, List[Tuple[str, Tuple[int, int]]]]]:
+#     """ Embed the terminal nodes of a the transistors into the routing graph.
+#     Modifies `G` and `terminals_by_net`
+#     :param G: The routing graph.
+#     :param transistor_layouts: List[TransistorLayout]
+#     :param tech: module containing technology information
+#     :return: Returns terminal nodes as a list like List[(netname, [(layer, coordinate), ...])]
+#     """
+#     terminals_by_net = []
+#     # Connect terminal nodes of transistor gates in G.
+#     for transistor, t_layout in transistor_layouts.items():
+#         terminals = t_layout.terminal_nodes()
+#         for net, ts in terminals.items():
+#             coords = []  # Coordinates of inserted terminal nodes.
+#             layer = None
+#             for t in ts:
+#                 layer, (x, y) = t
+#
+#                 # logger.debug(f"Terminal node {net} {layer} {t}")
+#
+#                 # Insert terminal into G.
+#                 next_x = grid_round(x, tech.routing_grid_pitch_x, tech.grid_offset_x)
+#
+#                 assert next_x == x, Exception("Terminal node not x-aligned.")
+#
+#                 x_aligned_nodes = [(l, (_x, y)) for l, (_x, y) in G if l == layer and _x == x]
+#
+#                 def dist(a, b):
+#                     _, (x1, y1) = a
+#                     _, (x2, y2) = b
+#                     return (x1 - x2) ** 2 + (y1 - y2) ** 2
+#
+#                 if x_aligned_nodes:
+#                     neighbour_node = min(x_aligned_nodes, key=lambda n: dist(n, t))
+#
+#                     # TODO: weight proportional to gate width?
+#                     G.add_edge(t, neighbour_node, weight=1000, wire_width=tech.gate_length)
+#
+#                     assert layer is not None
+#                     coords.append((layer, (x, y)))
+#                 else:
+#                     logger.debug(f"No neighbour node for terminal with net `{net}` of transistor {transistor.name}.")
+#
+#             if coords:
+#                 terminals_by_net.append((net, coords))
+#     print("Embedded transistor terminals: ", terminals_by_net)
+#     return terminals_by_net
 
 
 def create_virtual_terminal_nodes(G: nx.Graph,
