@@ -32,7 +32,7 @@ def _decompose_region(region: db.Region, ignore_non_rectilinear: bool = False) -
     :return: Returns the list of rectangles.
     """
     trapezoids = region.decompose_trapezoids_to_region()
-    logger.debug("Number of trapezoids: {}".format(trapezoids.size()))
+    # logger.debug("Number of trapezoids: {}".format(trapezoids.size()))
     rectangles = []
     for polygon in trapezoids.each():
         box = polygon.bbox()
