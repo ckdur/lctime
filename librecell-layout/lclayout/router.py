@@ -329,29 +329,31 @@ class DefaultRouter():
             #     logger.debug(f"Net is already routed: {net}")
 
         # Construct two dimensional grid which defines the routing graph on a single layer.
-        # grid = Grid2D((tech.grid_offset_x, tech.grid_offset_y),
-        #               (cell_width, tech.grid_offset_y + tech.unit_cell_height),
-        #               (tech.routing_grid_pitch_x, tech.routing_grid_pitch_y)
-        #               )
+        grid = Grid2D((tech.grid_offset_x, tech.grid_offset_y),
+                      (cell_width, tech.grid_offset_y + tech.unit_cell_height),
+                      (tech.routing_grid_pitch_x, tech.routing_grid_pitch_y)
+                      )
 
         # Create base graph
-        # graph = create_routing_graph_base(grid, tech)
-        xs = list(range(tech.grid_offset_x, cell_width, tech.routing_grid_pitch_x))
-        ys = list(range(tech.grid_offset_y, tech.grid_offset_y + tech.unit_cell_height, tech.routing_grid_pitch_y))
+        graph = create_routing_graph_base(grid, tech)
 
-        # Embed off-grid lines for accessing transistor nodes.
-        for transistor, t_layout in transistor_layouts.items():
-            terminals = t_layout.terminal_nodes()
-            for net, ts in terminals.items():
-                for t in ts:
-                    layer, (x, y) = t
-                    xs.append(x)
-                    ys.append(y)
-        # Make cordinates unique and sort.
-        xs = sorted(set(xs))
-        ys = sorted(set(ys))
-
-        graph = create_routing_graph_base_v2(xs, ys, tech)
+        # # Create base graph (v2)
+        # xs = list(range(tech.grid_offset_x, cell_width, tech.routing_grid_pitch_x))
+        # ys = list(range(tech.grid_offset_y, tech.grid_offset_y + tech.unit_cell_height, tech.routing_grid_pitch_y))
+        #
+        # # Embed off-grid lines for accessing transistor nodes.
+        # for transistor, t_layout in transistor_layouts.items():
+        #     terminals = t_layout.terminal_nodes()
+        #     for net, ts in terminals.items():
+        #         for t in ts:
+        #             layer, (x, y) = t
+        #             xs.append(x)
+        #             ys.append(y)
+        # # Make cordinates unique and sort.
+        # xs = sorted(set(xs))
+        # ys = sorted(set(ys))
+        #
+        # graph = create_routing_graph_base_v2(xs, ys, tech)
 
         # Remove illegal routing nodes from graph and get a dict of legal routing nodes per layer.
         remove_illegal_routing_edges(graph, shapes, tech)
@@ -395,9 +397,9 @@ class DefaultRouter():
 
         # Update the list of terminals with the joined terminals.
         terminals_by_net = joined_terminals
-        #
-        # # Embed transistor terminal nodes in to routing graph.
-        # terminals_by_net.extend(embed_transistor_terminal_nodes(graph, transistor_layouts, tech))
+
+        # Embed transistor terminal nodes in to routing graph.
+        terminals_by_net.extend(embed_transistor_terminal_nodes(graph, transistor_layouts, tech))
 
         # Check if each net really has a routing terminal.
         # It can happen that there is none due to spacing issues.

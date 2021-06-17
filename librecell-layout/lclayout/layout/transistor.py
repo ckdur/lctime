@@ -184,11 +184,19 @@ class DefaultTransistorLayout(TransistorLayout):
         gate_bottom = bottom - tech.gate_extension
 
         # Create gate terminals.
-        terminals = {
-            abstract_transistor.gate_net: [
+        gate_terminal_locations = [
                 (l_poly, (center_x, gate_top)),
                 (l_poly, (center_x, gate_bottom))
             ]
+        # That's a hack for now to have only one terminal per gate.
+        if y % 2 == 1:
+            # Top aligned.
+            gate_terminal_locations = [(l_poly, (center_x, gate_bottom))]
+        else:
+            # Bottom aligned
+            gate_terminal_locations = [(l_poly, (center_x, gate_top))]
+        terminals = {
+            abstract_transistor.gate_net: gate_terminal_locations
         }
 
         # Create gate shape.
