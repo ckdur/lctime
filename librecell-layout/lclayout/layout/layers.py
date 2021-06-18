@@ -156,6 +156,10 @@ l_metal2 = 'metal2'
 l_metal2_label = 'metal2_label'
 l_metal2_pin = 'metal2_pin'
 l_abutment_box = 'abutment_box'
+l_border_horizontal = 'neighbour_cells_horizontal'
+"Helper layer to allow spacing rules to left and right borders."
+l_border_vertical = 'neighbour_cells_vertical'
+"Helper layer to allow spacing rules to upper and lower borders."
 
 layermap = {
     l_nwell: (1, 0),
@@ -175,7 +179,9 @@ layermap = {
     l_metal2: (10, 0),
     l_metal2_label: (10, 1),
     l_metal2_pin: (10, 2),
-    l_abutment_box: (100, 0)
+    l_abutment_box: (100, 0),
+    l_border_horizontal: (101, 0),
+    l_border_vertical: (101, 1),
 }
 
 layermap_reverse = {v: k for k, v in layermap.items()}

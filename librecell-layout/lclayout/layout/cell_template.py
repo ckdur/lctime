@@ -43,6 +43,12 @@ def draw_cell_template(shapes: Dict[str, db.Shapes],
     # Draw abutment box.
     shapes[l_abutment_box].insert(db.Box(0, 0, cell_width, cell_height))
 
+    # Markers for upper/lower and left/right borders.
+    shapes[l_border_vertical].insert(db.Box(0, -100, cell_width, 0))
+    shapes[l_border_vertical].insert(db.Box(0, cell_height, cell_width, cell_height+100))
+    shapes[l_border_horizontal].insert(db.Box(-100, 0, 0, cell_height))
+    shapes[l_border_horizontal].insert(db.Box(cell_width, 0, cell_width+100, cell_height))
+
     # Draw nwell / pwell
 
     # Fill half of the cell with nwell.
