@@ -246,6 +246,7 @@ class Macro(LefContainer):
                  name: str,
                  macro_class: MacroClass,
                  foreign: Foreign,
+                 size: (int, int),
                  obstructions: List[Obstruction],
                  origin: Point,
                  symmetry: Set[Symmetry],
@@ -257,6 +258,7 @@ class Macro(LefContainer):
         self.obstructions = obstructions  # Obstructions (Blockages), [LEF/DEF] p. 192.
         self.macro_class = macro_class
         self.foreign = foreign
+        self.size = size
         self.origin = origin
         self.symmetry = symmetry
         self.pins = pins
@@ -269,6 +271,7 @@ class Macro(LefContainer):
             [
                 self.macro_class,
                 Property("FOREIGN", self.foreign.format()),
+                Property("SIZE", f"{self.size[0]} BY {self.size[1]}"),
                 Property("ORIGIN", self.origin.format()),
                 Property("SYMMETRY", " ".join((s.name.upper() for s in self.symmetry))),
                 Property("SITE", self.site.upper()),

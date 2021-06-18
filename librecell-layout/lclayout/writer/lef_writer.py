@@ -115,7 +115,7 @@ def generate_lef_macro(layout: db.Layout,
     # Create LEF Pin objects containing geometry information of the pins.
     for pin_name, ports in pin_geometries.items():
 
-        layers = []
+        pin_layers = []
 
         for layer_name, shape in ports:
             # Convert all non-regions into a region
@@ -124,10 +124,10 @@ def generate_lef_macro(layout: db.Layout,
 
             geometries = region_to_geometries(region, f)
 
-            layers.append((lef.Layer(layer_name), geometries))
+            pin_layers.append((lef.Layer(layer_name), geometries))
 
         port = lef.Port(CLASS=lef.Class.CORE,
-                        geometries=layers)
+                        geometries=pin_layers)
 
         # if pin_name not in pin_direction:
         #     msg = "I/O direction of pin '{}' is not defined.".format(pin_name)
@@ -168,10 +168,15 @@ def generate_lef_macro(layout: db.Layout,
         obs = lef.Obstruction(lef.Layer(obstruction_layer), geometries)
         obstructions.append(obs)
 
+    # Find size of the abutment box.
+    bbox = db.Region(cell.shapes(layout.layer(layer_infos[layers.l_abutment_box]))).bbox()
+    cell_size = (bbox.width(), bbox.height())
+
     macro = lef.Macro(
         name=cell_name,
         macro_class=lef.MacroClass.CORE,
         foreign=lef.Foreign(cell_name, lef.Point(0, 0)),
+        size=(cell_size[0]*f, cell_size[1]*f),
         origin=lef.Point(0, 0),
         symmetry={lef.Symmetry.X, lef.Symmetry.Y, lef.Symmetry.R90},
         site=site,
