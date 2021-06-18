@@ -208,6 +208,9 @@ class LcLayout:
         logger.debug("Setup layout.")
         self.top_cell = self.layout.create_cell(self.cell_name)
 
+        self.top_cell.set_property("gnd_net", self.GND_NET)
+        self.top_cell.set_property("supply_net", self.SUPPLY_VOLTAGE_NET)
+
         # Setup layers.
         self.shapes = dict()
         for name, (num, purpose) in layermap.items():

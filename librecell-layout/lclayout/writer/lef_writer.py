@@ -99,7 +99,7 @@ def generate_lef_macro(layout: db.Layout,
     :param cell_name: Name of the cell as it will appear in the LEF file.
     :param pin_geometries: A dictionary mapping pin names to geometries: Dict[pin name, List[(layer name, klayout Shape)]]
     :param pin_direction:
-    :param pin_use:
+    :param pin_use: Pin USE for each pin name. 'SIGNAL' will be taken as a default.
     :param use_rectangles_only: Decompose all polygons into rectangles. Non-rectilinear shapes are dropped.
     :return: Returns a `lef.Macro` object containing the pin information of the cell.
 
@@ -141,7 +141,7 @@ def generate_lef_macro(layout: db.Layout,
 
         pin = lef.Pin(pin_name=pin_name,
                       direction=lef.Direction.INOUT,  # TODO: find direction
-                      use=lef.Use.SIGNAL,  # TODO: correct use
+                      use=pin_use.get(pin_name, lef.Use.SIGNAL),
                       shape=lef.Shape.ABUTMENT,
                       port=port,
                       property={},
@@ -225,11 +225,17 @@ class LefWriter(Writer):
         # Write LEF
         # Create and populate LEF Macro data structure.
         # TODO: pass correct USE and DIRECTION
+
+        pin_use = {
+            top_cell.property("gnd_net"): lef.Use.POWER,
+            top_cell.property("supply_net"): lef.Use.POWER,
+        }
+
         lef_macro = generate_lef_macro(layout,
                                        self.obstruction_output_map,
                                        top_cell.name,
                                        pin_geometries=pin_geometries,
-                                       pin_use=None,
+                                       pin_use=pin_use,
                                        pin_direction=None,
                                        site=self.site,
                                        scaling_factor=scaling_factor,

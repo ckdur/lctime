@@ -274,7 +274,7 @@ class Macro(LefContainer):
                 Property("SIZE", f"{self.size[0]} BY {self.size[1]}"),
                 Property("ORIGIN", self.origin.format()),
                 Property("SYMMETRY", " ".join((s.name.upper() for s in self.symmetry))),
-                Property("SITE", self.site.upper()),
+                Property("SITE", self.site),
             ],
             self.pins,
             self.obstructions,
