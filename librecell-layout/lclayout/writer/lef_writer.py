@@ -85,6 +85,7 @@ def region_to_geometries(region: db.Region, f: float, use_rectangles_only: bool 
 
 def generate_lef_macro(layout: db.Layout,
                        output_map: Dict[str, str],
+                       obstruction_layers: List[str],
                        cell_name: str,
                        pin_geometries: Dict[str, List[Tuple[str, db.Shape]]],
                        pin_direction: Dict[str, lef.Direction],
@@ -95,6 +96,7 @@ def generate_lef_macro(layout: db.Layout,
                        ) -> lef.Macro:
     """
     Assemble a LEF MACRO structure containing the pin shapes.
+    :param obstruction_layers: List of original layer names that should be output as obstructions.
     :param site: SITE name. Default is 'CORE'.
     :param cell_name: Name of the cell as it will appear in the LEF file.
     :param pin_geometries: A dictionary mapping pin names to geometries: Dict[pin name, List[(layer name, klayout Shape)]]
@@ -124,7 +126,8 @@ def generate_lef_macro(layout: db.Layout,
 
             geometries = region_to_geometries(region, f)
 
-            pin_layers.append((lef.Layer(layer_name), geometries))
+            output_layer_name = output_map.get(layer_name, layer_name)
+            pin_layers.append((lef.Layer(output_layer_name), geometries))
 
         port = lef.Port(CLASS=lef.Class.CORE,
                         geometries=pin_layers)
@@ -149,7 +152,6 @@ def generate_lef_macro(layout: db.Layout,
         pins.append(pin)
 
     # Store all routing shapes as 'obstructions'.
-    obstruction_layers = sorted(output_map.keys())
     cell_id = layout.cell_by_name(cell_name)
     cell = layout.cell(cell_id)
     assert isinstance(cell, db.Cell)
@@ -164,8 +166,8 @@ def generate_lef_macro(layout: db.Layout,
 
         region = db.Region(shapes)
         geometries = region_to_geometries(region, f)
-
-        obs = lef.Obstruction(lef.Layer(obstruction_layer), geometries)
+        obstruction_layer_name = output_map.get(obstruction_layer, obstruction_layer)
+        obs = lef.Obstruction(lef.Layer(obstruction_layer_name), geometries)
         obstructions.append(obs)
 
     # Find size of the abutment box.
@@ -190,19 +192,21 @@ def generate_lef_macro(layout: db.Layout,
 class LefWriter(Writer):
 
     def __init__(self,
-                 obstruction_output_map: Dict[str, str],
+                 output_map: Dict[str, str],
+                 obstruction_layers: List[str],
                  site: str = "CORE",
                  db_unit: float = 1e-6,
                  use_rectangles_only: bool = False):
         """
-
-        :param obstruction_output_map: Mapping from lclayout layer names to output layer names of obstructions.
+        :param output_map: Mapping from lclayout layer names to output layer names.
+        :param obstruction_layers: List of layers that should be output as obstructions (requires the internal layer names).
         :param site: SITE name.
         :param db_unit: Database unit in meters. Default is 1um (1e-6 m)
         :param use_rectangles_only: Convert all polygons into rectangles. Non-rectilinear shapes are dropped.
         """
+        self.obstruction_layers = obstruction_layers
         self.db_unit = db_unit
-        self.obstruction_output_map = obstruction_output_map
+        self.output_map = output_map
         self.scaling_factor = 1
         self.use_rectangles_only = use_rectangles_only
         self.site = site
@@ -232,7 +236,8 @@ class LefWriter(Writer):
         }
 
         lef_macro = generate_lef_macro(layout,
-                                       self.obstruction_output_map,
+                                       self.output_map,
+                                       self.obstruction_layers,
                                        top_cell.name,
                                        pin_geometries=pin_geometries,
                                        pin_use=pin_use,
