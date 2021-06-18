@@ -224,7 +224,7 @@ class LefWriter(Writer):
 
         # Write LEF
         # Create and populate LEF Macro data structure.
-        # TODO: pass correct USE and DIRECTION
+        # TODO: pass correct DIRECTION
 
         pin_use = {
             top_cell.property("gnd_net"): lef.Use.POWER,
