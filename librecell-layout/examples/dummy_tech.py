@@ -71,7 +71,9 @@ output_map = {
     l_metal2: my_metal2,
     l_metal2_label: my_metal2_label,
     l_metal2_pin: my_metal2_pin,
-    l_abutment_box: my_abutment_box
+    l_abutment_box: my_abutment_box,
+    l_border_horizontal: (200, 1),
+    l_border_vertical: (200, 2),
 }
 
 # Define a list of output writers.
@@ -161,6 +163,7 @@ min_spacing = {
     (l_poly, l_pdiff_contact): 10,
     (l_metal1, l_metal1): 50,
     (l_metal2, l_metal2): 100,
+    (l_metal1, l_border_vertical): 100,
 }
 
 # Layer for the pins.

@@ -227,10 +227,10 @@ def remove_illegal_routing_edges(graph: nx.Graph, shapes: Dict[Any, db.Shapes], 
 
     # Ensure that no spacing rules are violated when cells are abutted together.
     # This is done by filling all layers around the cell.
-    for layer, region in regions.items():
-        if layer in spacing_graph:
+    for via_layer, region in regions.items():
+        if via_layer in spacing_graph:
             # Find the largest min-spacing to any other layer.
-            largest_min_spacing = max((spacing_graph[layer][other]['min_spacing'] for other in spacing_graph[layer]))
+            largest_min_spacing = max((spacing_graph[via_layer][other]['min_spacing'] for other in spacing_graph[via_layer]))
             half_spacing = largest_min_spacing // 2  # Spacing to the cell outline.
 
             cell_region = db.Region()
@@ -258,12 +258,12 @@ def remove_illegal_routing_edges(graph: nx.Graph, shapes: Dict[Any, db.Shapes], 
         is_via = l1 != l2  # TODO: Vias are now separate nodes.
 
         if not is_via:
-            layer = l1
-            other_layers = spacing_graph[layer]
+            via_layer = l1
+            other_layers = spacing_graph[via_layer]
             for other_layer in other_layers:
-                if other_layer != layer:
-                    min_spacing = spacing_graph[layer][other_layer]['min_spacing']
-                    wire_width_half = (tech.wire_width.get(layer, 0) + 1) // 2
+                if other_layer != via_layer:
+                    min_spacing = spacing_graph[via_layer][other_layer]['min_spacing']
+                    wire_width_half = (tech.wire_width.get(via_layer, 0) + 1) // 2
                     margin = wire_width_half + min_spacing
                     # TODO: treat horizontal and vertical lines differently if they don't have the same wire width.
                     region = regions[other_layer]
@@ -273,15 +273,15 @@ def remove_illegal_routing_edges(graph: nx.Graph, shapes: Dict[Any, db.Shapes], 
                         illegal_edges.add(e)
         else:
             assert p1 == p2, "End point coordinates of a via edge must match."
-            layer = via_layers[l1][l2]['layer']
+            via_layer = via_layers[l1][l2]['layer']
 
-            if layer in spacing_graph:
-                other_layers = spacing_graph[layer]
+            if via_layer in spacing_graph:
+                other_layers = spacing_graph[via_layer]
                 for other_layer in other_layers:
-                    if other_layer != layer:
-                        if layer in spacing_graph and other_layer in spacing_graph:
-                            min_spacing = spacing_graph[layer][other_layer]['min_spacing']
-                            via_width_half = (tech.via_size[layer] + 1) // 2
+                    if other_layer != via_layer:
+                        if via_layer in spacing_graph and other_layer in spacing_graph:
+                            min_spacing = spacing_graph[via_layer][other_layer]['min_spacing']
+                            via_width_half = (tech.via_size[via_layer] + 1) // 2
                             margin = via_width_half + min_spacing
                             region = regions[other_layer]
                             is_illegal_edge = interacts(p1, region, margin)
@@ -545,7 +545,7 @@ def embed_transistor_terminal_nodes(G: nx.Graph,
 
             if coords:
                 terminals_by_net.append((net, coords))
-    print("Embedded transistor terminals: ", terminals_by_net)
+
     return terminals_by_net
 
 

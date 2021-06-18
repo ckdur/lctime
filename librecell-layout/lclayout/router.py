@@ -328,18 +328,18 @@ class DefaultRouter():
             # if len(pins) == 1:
             #     logger.debug(f"Net is already routed: {net}")
 
-        # Construct two dimensional grid which defines the routing graph on a single layer.
-        grid = Grid2D((tech.grid_offset_x, tech.grid_offset_y),
-                      (cell_width, tech.grid_offset_y + tech.unit_cell_height),
-                      (tech.routing_grid_pitch_x, tech.routing_grid_pitch_y)
-                      )
+        # # Construct two dimensional grid which defines the routing graph on a single layer.
+        # grid = Grid2D((tech.grid_offset_x, tech.grid_offset_y),
+        #               (cell_width, tech.grid_offset_y + tech.unit_cell_height),
+        #               (tech.routing_grid_pitch_x, tech.routing_grid_pitch_y)
+        #               )
+        #
+        # # Create base graph
+        # graph = create_routing_graph_base(grid, tech)
 
-        # Create base graph
-        graph = create_routing_graph_base(grid, tech)
-
-        # # Create base graph (v2)
-        # xs = list(range(tech.grid_offset_x, cell_width, tech.routing_grid_pitch_x))
-        # ys = list(range(tech.grid_offset_y, tech.grid_offset_y + tech.unit_cell_height, tech.routing_grid_pitch_y))
+        # Create base graph (v2)
+        xs = list(range(tech.grid_offset_x, cell_width, tech.routing_grid_pitch_x))
+        ys = list(range(tech.grid_offset_y, tech.grid_offset_y + tech.unit_cell_height, tech.routing_grid_pitch_y))
         #
         # # Embed off-grid lines for accessing transistor nodes.
         # for transistor, t_layout in transistor_layouts.items():
@@ -349,11 +349,12 @@ class DefaultRouter():
         #             layer, (x, y) = t
         #             xs.append(x)
         #             ys.append(y)
-        # # Make cordinates unique and sort.
-        # xs = sorted(set(xs))
-        # ys = sorted(set(ys))
-        #
-        # graph = create_routing_graph_base_v2(xs, ys, tech)
+
+        # Make cordinates unique and sort.
+        xs = sorted(set(xs))
+        ys = sorted(set(ys))
+
+        graph = create_routing_graph_base_v2(xs, ys, tech)
 
         # Remove illegal routing nodes from graph and get a dict of legal routing nodes per layer.
         remove_illegal_routing_edges(graph, shapes, tech)
@@ -467,7 +468,7 @@ class DefaultRouter():
             logger.debug("Find conflicting nodes.")
             conflicts = dict()
 
-            # Insert spacing from via nodes to metal.
+            # Insert spacing rules from via nodes to metal.
             # This captures the spacing requirements caused by the via enclosure.
             spacing_graph = spacing_graph.copy()
             for (l1, l2, data) in via_layers.edges(data=True):
@@ -476,6 +477,18 @@ class DefaultRouter():
                 for l in (l1, l2):
                     w_ext = via_width // 2 + tech.minimum_enclosure.get((l, via_layer), 0)
                     # Get min spacing on the metal layer.
+                    # TODO: Check this!
+                    if l in spacing_graph:
+                        for l_next in list(spacing_graph[l]):
+                            metal_spacing = spacing_graph[l][l_next]['min_spacing']
+                            via_to_metal_spacing = metal_spacing + w_ext
+
+                            # Update the spacing graph. Take the max if an entry already exists.
+                            if l_next in spacing_graph and via_layer in spacing_graph[l_next]:
+                                existing_via_to_metal_spacing = spacing_graph[l_next][via_layer]['min_spacing']
+                                via_to_metal_spacing = max(via_to_metal_spacing, existing_via_to_metal_spacing)
+                            spacing_graph.add_edge(via_layer, l_next, min_spacing=via_to_metal_spacing)
+
                     if l in spacing_graph and l in spacing_graph[l]:
                         metal_spacing = spacing_graph[l][l]['min_spacing']
                         via_to_metal_spacing = metal_spacing + w_ext
