@@ -99,12 +99,14 @@ output_writers = [
 
     LefWriter(
         db_unit=1e-6,  # microns
+        # Define the layer names in the LEF file.
         output_map={
             l_via1: 'm2contact',
             l_poly: 'polysilicon',
             l_metal1: 'metal1',
             l_metal2: 'metal2',
         },
+        # Define which layers should be output as obstruction layers.
         obstruction_layers=[
             l_poly,
             l_metal1,
