@@ -227,12 +227,10 @@ class Obstruction(LefContainer):
 
     def format(self):
         return [
-            "OBS",
             [
                 self.layer,
                 [g for g in self.geometries]
             ],
-            "END",
             []
         ]
 
@@ -277,7 +275,11 @@ class Macro(LefContainer):
                 Property("SITE", self.site),
             ],
             self.pins,
-            self.obstructions,
+            [
+                "OBS",
+                self.obstructions,
+                "END"
+            ],
             "END {}".format(self.name.upper()),
             [],
         ]
