@@ -339,7 +339,8 @@ class DefaultRouter():
 
         # Create base graph (v2)
         xs = list(range(tech.grid_offset_x, cell_width, tech.routing_grid_pitch_x))
-        ys = list(range(tech.grid_offset_y, tech.grid_offset_y + tech.unit_cell_height, tech.routing_grid_pitch_y))
+        #ys = list(range(tech.grid_offset_y, tech.grid_offset_y + tech.unit_cell_height, tech.routing_grid_pitch_y))
+        ys = tech.grid_ys
         #
         # # Embed off-grid lines for accessing transistor nodes.
         # for transistor, t_layout in transistor_layouts.items():

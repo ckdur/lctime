@@ -163,7 +163,6 @@ min_spacing = {
     (l_poly, l_pdiff_contact): 10,
     (l_metal1, l_metal1): 50,
     (l_metal2, l_metal2): 100,
-    (l_metal1, l_border_vertical): 100,
 }
 
 # Layer for the pins.
@@ -202,6 +201,9 @@ routing_grid_pitch_y = unit_cell_height // 8
 # Translate routing grid such that the bottom left grid point is at (grid_offset_x, grid_offset_y)
 grid_offset_x = routing_grid_pitch_x
 grid_offset_y = routing_grid_pitch_y // 2
+
+# y coordinates of the grid.
+grid_ys = list(range(grid_offset_y, grid_offset_y + unit_cell_height, routing_grid_pitch_y))
 
 # Width of power rail.
 power_rail_width = 360
