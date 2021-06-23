@@ -507,6 +507,15 @@ class DefaultRouter():
                             via_to_via_spacing = max(via_to_via_spacing, existing_via_to_via_spacing)
                         spacing_graph.add_edge(via_layer, via_layer, min_spacing=via_to_via_spacing)
 
+            # Prepare data structure for efficient region search of routing nodes.
+            node_search = defaultdict(db.Shapes)
+            for n in graph:
+                if not _is_virtual_node_fn(n):
+                    layer, (x, y) = n
+                    p = db.Text(layer, x, y)
+                    node_search[layer].insert(p)
+
+            # For each node find nodes that would be in conflict when used at the same time.
             # Loop through all nodes in the routing graph graph.
             for n in graph:
                 # Skip virtual nodes which have no physical representation.
@@ -526,17 +535,19 @@ class DefaultRouter():
                                 margin = (wire_width1 + wire_width2 + min_spacing)
 
                                 # Find nodes that are closer than the minimal spacing.
-                                # conflict_points = grid.neigborhood(point, margin, norm_ord=1)
-                                # TODO: This proximity search is very slow.
-                                # TODO: Put nodes into a data structure that allows faster nearest-neighbour search.
-                                potential_conflicts = [x for x in graph if x[0] == other_layer]
-                                conflict_points = [p for (_, p) in potential_conflicts
-                                                   if numpy.linalg.norm(numpy.array(p) - numpy.array(point),
-                                                                        ord=1) < margin
-                                                   ]
+                                center = db.Point(*point)
+                                v_margin = db.Vector(margin, margin)
+                                search_box = db.Box(center - v_margin, center + v_margin)
+
+                                # Find all nodes that are closer than 'margin'.
+                                nodes_within_margin = node_search[other_layer].each_touching(search_box)
+
+                                # Extract locations.
+                                conflict_points = [shape.text_pos for shape in nodes_within_margin]
+
                                 # Construct the lookup table for conflicting nodes.
                                 for p in conflict_points:
-                                    conflict_node = other_layer, p
+                                    conflict_node = other_layer, (p.x, p.y)
                                     if conflict_node in graph:
                                         node_conflicts.add(conflict_node)
                     if node_conflicts:
