@@ -5,6 +5,7 @@ pipeline:
             #- pip3 install nose cython
             - apt update
             - apt install -y cython3 ngspice z3
+            - pip3 install cython
             - python3 -m venv librecell-venv
             - . ./librecell-venv/bin/activate
             - bash install.sh 
