@@ -1,0 +1,8 @@
+pipeline:
+    build:
+        image: python
+        commands:
+            #- pip3 install nose cython
+            - apt update
+            - apt install -y cython3
+            - bash install.sh 

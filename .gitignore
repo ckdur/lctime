@@ -4,3 +4,6 @@
 *.scad
 *.gds
 *.so
+.idea/
+*/dist/
+*/build/
