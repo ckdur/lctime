@@ -6,5 +6,5 @@ pipeline:
             - apt update
             - apt install -y cython3 ngspice z3
             - python3 -m venv librecell-venv
-            - source ./librecell-venv/bin/activate
+            - . ./librecell-venv/bin/activate
             - bash install.sh 
