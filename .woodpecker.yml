@@ -5,7 +5,9 @@ pipeline:
             #- pip3 install nose cython
             - apt update
             - apt install -y cython3 ngspice z3
+            - apt install -y libjpeg-dev # Weird dependency.
             - pip3 install cython
+            - pip3 install tomli packaging # Weird dependencies. TODO: Get rid of that.
             - python3 -m venv librecell-venv
             - . ./librecell-venv/bin/activate
             - bash install.sh 
