@@ -4,7 +4,7 @@ pipeline:
         commands:
             - apt update
             - apt install -y cython3 ngspice z3
-            - apt install -y numpy scipy
+            - apt install -y python3-numpy python3-scipy
             - apt install -y libjpeg-dev # Weird dependency.
               #- python3 -m venv librecell-venv
               #- . ./librecell-venv/bin/activate
