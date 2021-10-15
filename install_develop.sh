@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 # Install library code shared by multiple parts of librecell.
 cd librecell-common
 python3 setup.py develop
