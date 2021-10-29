@@ -15,6 +15,9 @@ pipeline:
             - pip install --no-deps ./librecell-common
             - pip install --no-deps ./librecell-layout
             - pip install --no-deps ./librecell-lib
+              # Test
+            - cd ./librecell-layout/examples
+            - ./run_example.sh
 
 # Run CI only on master branch.
 branches: [ master ]
