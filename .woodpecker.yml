@@ -12,9 +12,9 @@ pipeline:
             - apt install -y python3-packaging # Weird dependencies. TODO: Get rid of that.
               #- pip install tomli # Weird dependencies. TODO: Get rid of that.
               #- bash install.sh 
-            - pip install --no-deps ./librecell-common
-            - pip install --no-deps ./librecell-layout
-            - pip install --no-deps ./librecell-lib
+            - pip3 install --no-deps ./librecell-common
+            - pip3 install --no-deps ./librecell-layout
+            - pip3 install --no-deps ./librecell-lib
               # Test
             - cd ./librecell-layout/examples
             - ./run_example.sh
