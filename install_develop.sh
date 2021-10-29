@@ -1,22 +1,21 @@
 #!/bin/bash
 
+# Install librecell in development mode.
+# The installed package will just link to this repository. Changes in the repository affect the installation immediately.
+
 set -e
 
+INSTALL="pip install --upgrade --editable"
+
 # Install library code shared by multiple parts of librecell.
-cd librecell-common
-python3 setup.py develop
-cd ..
+$INSTALL ./librecell-common
 
 # Install lclayout
-cd librecell-layout
-python3 setup.py develop
-cd ..
+$INSTALL ./librecell-layout
 
 # Install lclib
-cd librecell-lib
-python3 setup.py develop
-cd ..
+$INSTALL ./librecell-lib
 
 #cd librecell-meta
-#python3 setup.py develop
+#python3 setup.py install
 #cd ..
