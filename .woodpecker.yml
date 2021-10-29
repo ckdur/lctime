@@ -10,8 +10,9 @@ pipeline:
               #- . ./librecell-venv/bin/activate
               #- pip3 install --upgrade Cython --install-option="--no-cython-compile" # Faster installation for one-time builds.
             - apt install -y python3-packaging # Weird dependencies. TODO: Get rid of that.
-            - pip install tomli # Weird dependencies. TODO: Get rid of that.
-            - bash install.sh 
+              #- pip install tomli # Weird dependencies. TODO: Get rid of that.
+              #- bash install.sh 
+            - pip install ./librecell-common
 
 # Run CI only on master branch.
 branches: [ master ]
