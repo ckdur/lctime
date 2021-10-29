@@ -1,8 +1,9 @@
 pipeline:
     build:
-        image: python
+        image: debian
         commands:
             - apt update
+            - apt install -y python3
             - apt install -y cython3 ngspice z3
             - apt install -y python3-numpy python3-scipy python3-matplotlib python3-networkx python3-sympy python3-joblib
             - apt install -y libjpeg-dev # Weird dependency.
