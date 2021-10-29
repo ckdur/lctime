@@ -1,6 +1,6 @@
 pipeline:
     build:
-        image: debian
+        image: python:3.8-bullseye
         commands:
             - apt update
             - apt install -y python3
