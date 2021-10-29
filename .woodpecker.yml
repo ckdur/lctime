@@ -12,7 +12,9 @@ pipeline:
             - apt install -y python3-packaging # Weird dependencies. TODO: Get rid of that.
               #- pip install tomli # Weird dependencies. TODO: Get rid of that.
               #- bash install.sh 
-            - pip install ./librecell-common
+            - pip install --no-deps ./librecell-common
+            - pip install --no-deps ./librecell-layout
+            - pip install --no-deps ./librecell-lib
 
 # Run CI only on master branch.
 branches: [ master ]
