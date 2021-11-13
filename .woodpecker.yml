@@ -18,11 +18,6 @@ pipeline:
             - pip3 install --no-deps ./librecell-layout
             - pip3 install --no-deps ./librecell-lib
               # Test
-            - LCDIR=$PWD
-            - cd $LCDIR/librecell-layout/tests
-            - ./run*test.sh
-            - cd $LCDIR/librecell-lib/tests
-            - ./run*test.sh
-
+            - ./run_tests.sh
 # Run CI only on master branch.
 branches: [ master ]
