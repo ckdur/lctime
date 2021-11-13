@@ -16,6 +16,7 @@ pipeline:
             - apt install -y python3-packaging # Weird dependencies. TODO: Get rid of that.
               #- pip install tomli # Weird dependencies. TODO: Get rid of that.
               #- bash install.sh 
+            - pip3 install klayout
             - pip3 install --no-deps ./librecell-common
             - pip3 install --no-deps ./librecell-layout
             - pip3 install --no-deps ./librecell-lib
