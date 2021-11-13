@@ -724,6 +724,10 @@ class LcLayout:
         :return: Layout cell, pin shapes
         """
 
+        logger.info(f"Create layout for cell '{cell_name}' from '{netlist_path}'.")
+        if placement_path is not None:
+            logger.debug(f"Use placement file: '{placement_path}'")
+
         self._00_00_check_tech()
         self._00_01_prepare_tech()
 
@@ -869,18 +873,36 @@ def main():
     cell, pin_geometries = layouter.create_cell_layout(cell_name, netlist_path, args.placement_file)
 
     # LVS check
-    logger.info("Running LVS check")
+    logger.info(f"Running LVS check on cell: {cell_name}")
     reference_netlist = lvs.read_netlist_mos4_to_mos3(netlist_path)
+    assert reference_netlist.is_case_sensitive, "Netlist must be case sensitive."
+
+    # Check if cell is actually in the reference netlist.
+    reference_circuit = reference_netlist.circuit_by_name(cell_name)
+    if reference_circuit is None:
+        logger.error(f"Cell '{cell_name}' not found in reference netlist '{netlist_path}'.")
+        exit(1)
+
+    # Check for case sensitivity issue.
+    reference_cell_names = {c.name for c in reference_netlist.each_circuit()}
+    reference_cell_names_upper_case = {n.upper(): n for n in reference_cell_names}
+    if cell_name.upper() in reference_cell_names_upper_case:
+        logger.warning(f"Possible problem with case-sensitivity: "
+                     f"There is a cell with name '{reference_cell_names_upper_case[cell_name.upper()]}' "
+                     f"but need '{cell_name}'.")
 
     # Remove all unused circuits.
     # The reference netlist must contain only the circuit of the cell to be checked.
     # Copying a circuit into a new netlist makes `combine_devices` fail.
-    circuits_to_delete = {c for c in reference_netlist.each_circuit() if c.name != cell_name}
+    circuits_to_delete = {c for c in reference_netlist.each_circuit() if c != reference_circuit}
     for c in circuits_to_delete:
         reference_netlist.remove(c)
+    logger.debug(f"Reference netlist: \n{reference_netlist}")
 
     # Extract netlist from layout.
+    logger.debug("Extract netlist from layout.")
     extracted_netlist = lvs.extract_netlist(layout, cell)
+    logger.debug(f"Extracted netlist: \n{extracted_netlist}")
 
     # Run LVS comparison of the two netlists.
     lvs_success = lvs.compare_netlist(extracted_netlist, reference_netlist)

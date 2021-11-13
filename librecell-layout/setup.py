@@ -20,7 +20,7 @@ def readme():
 
 
 setup(name='librecell-layout',
-      version='0.0.13',
+      version='0.0.14',
       description='CMOS standard cell layout generator.',
       long_description=readme(),
       long_description_content_type="text/markdown",
@@ -47,7 +47,7 @@ setup(name='librecell-layout',
       install_requires=[
           'librecell-common>=0.0.9',
           'toml==0.10.*',
-          'klayout==0.26.*',  # GPLv3
+          'klayout>=0.27.3',  # GPLv3, minimum of 0.27.3 because of case-sensitive netlists.
           'numpy==1.*',  # BSD
           'networkx==2.*',  # BSD
           'scipy>=1.5.*',  # BSD

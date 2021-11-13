@@ -49,26 +49,31 @@ def load_netlist(path: str) -> db.Netlist:
     :return: Return a KLayout Netlist object.
     """
     netlist = db.Netlist()
-    netlist.read(path, db.NetlistSpiceReader())
+    netlist.case_sensitive = True
+    spice_reader = db.NetlistSpiceReader()
+    netlist.read(path, spice_reader)
+
+    cell_names = ", ".join(sorted({c.name for c in netlist.each_circuit()}))
+    logger.debug(f"Loaded cells: '{cell_names}'")
+    
     return netlist
 
-
-def get_subcircuit(netlist: db.Netlist, circuit_name: str) -> db.Circuit:
-    """ Get a sub circuit by name (case insensitive).
-    :param circuit_name: Name of the subcircuit.
-    :return: A tuple with the netlist and the circuit. Returns none if there's no subcircuit with this name.
-    """
-
-    if not circuit_name.isupper():
-        # KLayout converts cell names to uppercase.
-        # Check if that is still true:
-        assert netlist.circuit_by_name(circuit_name) is None, "KLayout did not convert cell names to upper case."
-        logger.info(f"Convert non-upper case cellname to upper case: '{circuit_name}' -> '{circuit_name.upper()}'")
-        circuit_name = circuit_name.upper()
-
-    circuit: db.Circuit = netlist.circuit_by_name(circuit_name)
-
-    return circuit
+# def get_subcircuit(netlist: db.Netlist, circuit_name: str) -> db.Circuit:
+#     """ Get a sub circuit by name (case insensitive).
+#     :param circuit_name: Name of the subcircuit.
+#     :return: A tuple with the netlist and the circuit. Returns none if there's no subcircuit with this name.
+#     """
+#
+#     if not circuit_name.isupper():
+#         # KLayout converts cell names to uppercase.
+#         # Check if that is still true:
+#         assert netlist.circuit_by_name(circuit_name) is None, "KLayout did not convert cell names to upper case."
+#         logger.info(f"Convert non-upper case cellname to upper case: '{circuit_name}' -> '{circuit_name.upper()}'")
+#         circuit_name = circuit_name.upper()
+#
+#     circuit: db.Circuit = netlist.circuit_by_name(circuit_name)
+#
+#     return circuit
 
 def load_subcircuit(path: str, circuit_name: str) -> Tuple[db.Netlist, db.Circuit]:
     """ Load a sub circuit from a SPICE file.
@@ -80,7 +85,7 @@ def load_subcircuit(path: str, circuit_name: str) -> Tuple[db.Netlist, db.Circui
 
     netlist = load_netlist(path)
 
-    circuit: db.Circuit = get_subcircuit(netlist, circuit_name)
+    circuit: db.Circuit = netlist.circuit_by_name(circuit_name)
 
     # Have to return the netlist too. Otherwise it is deconstructed already.
     return netlist, circuit

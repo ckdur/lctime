@@ -32,6 +32,7 @@ class MOS4To3NetlistSpiceReader(db.NetlistSpiceReaderDelegate):
         Process a SPICE element. All elements except 4-terminal MOS transistors are left unchanged.
         :return: True iff the device has not been ignored and put into the netlist.
         """
+
         if el != 'M' or len(nets) != 4:
             # All other elements are left to the standard implementation.
             return super().element(circuit, el, name, model, value, nets, params)
@@ -183,6 +184,7 @@ def extract_netlist(layout: db.Layout, top_cell: db.Cell) -> db.Netlist:
     l2n = extract_l2n(layout, top_cell)
 
     netlist = l2n.netlist()
+    netlist.case_sensitive = True
     netlist.make_top_level_pins()
     netlist.purge()
     netlist.combine_devices()
@@ -252,5 +254,10 @@ def read_netlist_mos4_to_mos3(netlist_path: str) -> db.Netlist:
     """
     logger.debug("Loading netlist (convert MOS4 to MOS3): {}".format(netlist_path))
     netlist = db.Netlist()
+    netlist.case_sensitive = True
     netlist.read(netlist_path, db.NetlistSpiceReader(MOS4To3NetlistSpiceReader()))
+
+    cell_names = ", ".join(sorted({c.name for c in netlist.each_circuit()}))
+    logger.debug(f"Loaded cells: '{cell_names}'")
+
     return netlist
