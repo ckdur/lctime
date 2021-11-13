@@ -139,7 +139,7 @@ def store_layout_to_magic_file(tech_name: str,
 
     mag_labels = []
 
-    transformation = db.DCplxTrans(scale_factor)
+    scale_transformation = db.DCplxTrans(scale_factor)
 
     for layer in layer_config:
         text_layer_gds_index = layer.polygon_source
@@ -157,7 +157,7 @@ def store_layout_to_magic_file(tech_name: str,
         mag_lines.append(line)
 
         # Scale the region.
-        region = region.transformed(transformation)
+        region = region.transform_icplx(scale_transformation)
 
         # Convert region into rectangles.
         boxes = _decompose_region(region, ignore_non_rectilinear=ignore_non_rectilinear)
@@ -175,7 +175,7 @@ def store_layout_to_magic_file(tech_name: str,
             pin_region.insert(pin_shapes)
             # Convert pin shape into rectangles.
             for pin_shape in pin_region.each_merged():
-                pin_shape = transformation.trans(pin_shape)
+                pin_shape = scale_transformation.trans(pin_shape)
                 rectangles = _decompose_polygon(pin_shape, ignore_non_rectilinear)
                 rectangles_str = [_format_rect(r) for r in rectangles]
 
