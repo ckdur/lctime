@@ -8,7 +8,7 @@ pipeline:
             - python3 --version
             - pip3 --version
             - apt install -y cython3 ngspice z3
-            - apt install -y python3-numpy python3-scipy python3-matplotlib python3-networkx python3-sympy python3-joblib
+            - apt install -y python3-numpy python3-scipy python3-matplotlib python3-networkx python3-sympy python3-joblib python3-z3
             - apt install -y libjpeg-dev # Weird dependency.
               #- python3 -m venv librecell-venv
               #- . ./librecell-venv/bin/activate
