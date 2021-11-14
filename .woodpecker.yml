@@ -10,18 +10,8 @@ pipeline:
             - apt install -y cython3 ngspice z3
             - apt install -y python3-numpy python3-scipy python3-matplotlib python3-networkx python3-sympy python3-joblib python3-z3 
             - apt install -y libjpeg-dev # Weird dependency.
-              #- python3 -m venv librecell-venv
-              #- . ./librecell-venv/bin/activate
-              #- pip3 install --upgrade Cython --install-option="--no-cython-compile" # Faster installation for one-time builds.
-            - apt install -y python3-packaging # Weird dependencies. TODO: Get rid of that.
-              #- pip install tomli # Weird dependencies. TODO: Get rid of that.
             - ./install.sh 
-              #- pip3 install klayout
-              #- pip3 install pysmt
-              #- pip3 install --no-deps ./librecell-common
-              #- pip3 install --no-deps ./librecell-layout
-              #- pip3 install --no-deps ./librecell-lib
-              # Test
             - ./run_tests.sh
+
 # Run CI only on master branch.
 branches: [ master ]
