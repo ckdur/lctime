@@ -15,12 +15,12 @@ pipeline:
               #- pip3 install --upgrade Cython --install-option="--no-cython-compile" # Faster installation for one-time builds.
             - apt install -y python3-packaging # Weird dependencies. TODO: Get rid of that.
               #- pip install tomli # Weird dependencies. TODO: Get rid of that.
-              #- bash install.sh 
-            - pip3 install klayout
-            - pip3 install pysmt
-            - pip3 install --no-deps ./librecell-common
-            - pip3 install --no-deps ./librecell-layout
-            - pip3 install --no-deps ./librecell-lib
+              - ./install.sh 
+              #- pip3 install klayout
+              #- pip3 install pysmt
+              #- pip3 install --no-deps ./librecell-common
+              #- pip3 install --no-deps ./librecell-layout
+              #- pip3 install --no-deps ./librecell-lib
               # Test
             - ./run_tests.sh
 # Run CI only on master branch.
