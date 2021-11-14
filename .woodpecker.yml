@@ -15,7 +15,7 @@ pipeline:
               #- pip3 install --upgrade Cython --install-option="--no-cython-compile" # Faster installation for one-time builds.
             - apt install -y python3-packaging # Weird dependencies. TODO: Get rid of that.
               #- pip install tomli # Weird dependencies. TODO: Get rid of that.
-              - ./install.sh 
+            - ./install.sh 
               #- pip3 install klayout
               #- pip3 install pysmt
               #- pip3 install --no-deps ./librecell-common
