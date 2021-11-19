@@ -192,6 +192,7 @@ class LatchExtractor:
         logger.info(f"Clear signals (active low): {clear_signals_inv}")
 
         result = Latch()
+        result.outputs = {output_net: output}
         result.enable = latch.write_condition
         result.data_in = latch.data
         result.clear = clear_condition
