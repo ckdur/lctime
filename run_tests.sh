@@ -13,7 +13,7 @@ cd $LCDIR/librecell-layout/tests
 
 echo TEST: lctime
 cd $LCDIR/librecell-lib/tests
-./run_freepdk45_test.sh
+./run_tests.sh
 
 
 echo TEST OK
