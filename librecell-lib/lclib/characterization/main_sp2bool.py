@@ -30,7 +30,7 @@ import argparse
 from copy import deepcopy
 from PySpice.Unit import *
 from lccommon import net_util
-from lccommon.net_util import load_transistor_netlist, load_netlist, get_subcircuit, extract_transistors
+from lccommon.net_util import load_transistor_netlist, load_netlist, extract_transistors
 import networkx as nx
 import sympy
 import re
