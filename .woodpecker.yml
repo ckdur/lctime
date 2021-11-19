@@ -1,6 +1,6 @@
 pipeline:
     build:
-        #image: python:3.8-bullseye
+        #image: python:3.8-bullseye # For local debuggin: podman run -it --rm python:3.8-bullseye
         image: debian
         commands:
             - apt update
