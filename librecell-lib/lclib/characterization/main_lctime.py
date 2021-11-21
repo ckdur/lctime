@@ -877,10 +877,10 @@ def characterize_combinational_output(
         conf: CharacterizationConfig,
         cell_type: Combinational,
         cell_conf: CellConfig,
-        input_pins,
-        input_pins_non_inverted,
-        output_capacitances,
-        input_transition_times
+        input_pins: List[str],
+        input_pins_non_inverted: List[str],
+        output_capacitances: np.ndarray,
+        input_transition_times: np.ndarray
 ):
     assert isinstance(cell_type, Combinational)
     # Measure timing for all input-output arcs.
@@ -997,8 +997,8 @@ def characterize_flip_flop_output(
         conf: CharacterizationConfig,
         cell_type: SingleEdgeDFF,
         cell_conf: CellConfig,
-        related_pin_transition,
-        input_transition_times
+        related_pin_transition: np.ndarray,
+        input_transition_times: np.ndarray,
 ):
     assert isinstance(cell_type, SingleEdgeDFF)
 
