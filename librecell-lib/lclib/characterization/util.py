@@ -173,6 +173,50 @@ class CharacterizationConfig:
         Define the current that is pushed into an input to measure the input capacitance.
         """
 
+        self.time_unit: float = 1e-6 # [s]
+        """
+        Time unit used in the liberty file.
+        """
+        self.capacitance_unit: float = 1e-12 # [F]
+        """
+        Capacitance unit used in the liberty file.
+        """
+
+    def get_units_from_liberty(self, library: Group):
+        """
+        Read units from liberty data.
+        """
+        # Units
+        # TODO: choose correct unit from liberty file
+        # Get the time unit used in this library.
+        # Unfortunately liberty is not consistent with the format for units...
+        time_unit_str = library['time_unit'].value.lower()
+        assert time_unit_str.endswith('s'), "Time unit string must end on 's' for seconds."
+        assert isinstance(time_unit_str, str)
+        cap_unit_factor, cap_unit_str = library['capacitive_load_unit']
+        assert cap_unit_str.endswith('f'), "Capacitance unit string must end on 'f' for Farads."
+        assert isinstance(cap_unit_str, str)
+        assert isinstance(cap_unit_factor, float)
+        cap_unit_str = cap_unit_str.lower()
+
+        time_unit_factor = float(time_unit_str[:-2])
+        time_unit_str = time_unit_str[-2:]
+        time_unit_prefix = time_unit_str[:1]
+        cap_unit_prefix = cap_unit_str[:1]
+
+        prefixes = {
+            'm': 1e-3,  # milli
+            'u': 1e-6,  # micro
+            'n': 1e-9,  # nano
+            'p': 1e-12,  # pico
+            'f': 1e-15,  # femto
+            'a': 1e-18  # atto
+        }
+
+        # Compute actual units in terms of SI units.
+        self.capacitance_unit = prefixes[cap_unit_prefix] * cap_unit_factor
+        self.time_unit = prefixes[time_unit_prefix] * time_unit_factor
+
 
 #
 # # TODO: Add type hints for Python 3.6.
