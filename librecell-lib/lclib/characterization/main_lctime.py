@@ -747,44 +747,6 @@ def main():
             # output_functions_symbolic = output_functions_user
             pass  # TODO
 
-        # Add groups for the cell to be characterized.
-        new_cell_group = deepcopy(select_cell(library, cell_name))
-
-        # Strip away timing groups. They will be replaced by the new characterization.
-        for pin_group in new_cell_group.get_groups('pin'):
-            pin_group.groups = [g for g in pin_group.groups if g.group_name != 'timing']
-
-        # Create missing pin groups.
-        for pin in sorted(set(input_pins_non_inverted + output_pins)):
-            pin_group = new_cell_group.get_groups('pin', pin)
-            if not pin_group:
-                pin_group = Group('pin', args=[pin])
-                new_cell_group.groups.append(pin_group)
-
-        # Set 'direction' attribute of input pins.
-        for pin in input_pins_non_inverted:
-            pin_group = new_cell_group.get_group('pin', pin)
-            if 'direction' not in pin_group:
-                pin_group['direction'] = 'input'
-
-        # Set 'direction' attribute of output pins.
-        for pin in output_pins:
-            pin_group = new_cell_group.get_group('pin', pin)
-            if 'direction' not in pin_group:
-                pin_group['direction'] = 'output'
-            pin_symbol = sympy.Symbol(pin)
-            if cell_type.outputs[pin_symbol].is_tristate():
-                # Mark as tri-state.
-                pin_group.set_boolean_function('three_state', cell_type.outputs[pin_symbol].high_impedance)
-
-        # Create 'complementary_pin' attribute for the inverted pin of differential pairs.
-        for input_pin in input_pins_non_inverted:
-            input_pin_group = new_cell_group.get_group('pin', input_pin)
-            # Create link to inverted pin for differential inputs.
-            input_pin_inverted = differential_inputs.get(input_pin)
-            if input_pin_inverted:
-                input_pin_group['complementary_pin'] = [EscapedString(input_pin_inverted)]
-
         logger.info("Run characterization.")
 
         # Setup cell specific configuration.
@@ -797,6 +759,18 @@ def main():
         cell_conf.workingdir = cell_workingdir
         cell_conf.spice_netlist_file = netlist_file_table[cell_name]
         cell_conf.spice_ports = spice_ports
+
+        # Add groups for the cell to be characterized.
+        new_cell_group = deepcopy(select_cell(library, cell_name))
+
+        # Populate the cell group with missing pin groups.
+        create_missing_pin_groups(
+            new_cell_group,
+            cell_type,
+            cell_conf,
+            output_pins,
+            input_pins_non_inverted
+        )
 
         # Measure input pin capacitances.
         measure_input_capacitances(
@@ -859,6 +833,49 @@ def main():
     with open(args.output, 'w') as f:
         logger.info("Write liberty: {}".format(args.output))
         f.write(str(new_library))
+
+
+def create_missing_pin_groups(
+        new_cell_group: Group,
+        cell_type: CellType,
+        cell_conf: CellConfig,
+        output_pins: List[str],
+        input_pins_non_inverted: List[str]
+):
+    # Strip away timing groups. They will be replaced by the new characterization.
+    for pin_group in new_cell_group.get_groups('pin'):
+        pin_group.groups = [g for g in pin_group.groups if g.group_name != 'timing']
+
+    # Create missing pin groups.
+    for pin in sorted(set(input_pins_non_inverted + output_pins)):
+        pin_group = new_cell_group.get_groups('pin', pin)
+        if not pin_group:
+            pin_group = Group('pin', args=[pin])
+            new_cell_group.groups.append(pin_group)
+
+    # Set 'direction' attribute of input pins.
+    for pin in input_pins_non_inverted:
+        pin_group = new_cell_group.get_group('pin', pin)
+        if 'direction' not in pin_group:
+            pin_group['direction'] = 'input'
+
+    # Set 'direction' attribute of output pins.
+    for pin in output_pins:
+        pin_group = new_cell_group.get_group('pin', pin)
+        if 'direction' not in pin_group:
+            pin_group['direction'] = 'output'
+        pin_symbol = sympy.Symbol(pin)
+        if cell_type.outputs[pin_symbol].is_tristate():
+            # Mark as tri-state.
+            pin_group.set_boolean_function('three_state', cell_type.outputs[pin_symbol].high_impedance)
+
+    # Create 'complementary_pin' attribute for the inverted pin of differential pairs.
+    for input_pin in input_pins_non_inverted:
+        input_pin_group = new_cell_group.get_group('pin', input_pin)
+        # Create link to inverted pin for differential inputs.
+        input_pin_inverted = cell_conf.complementary_pins.get(input_pin)
+        if input_pin_inverted:
+            input_pin_group['complementary_pin'] = [EscapedString(input_pin_inverted)]
 
 
 def measure_input_capacitances(
