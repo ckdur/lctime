@@ -799,25 +799,14 @@ def main():
         cell_conf.spice_ports = spice_ports
 
         # Measure input pin capacitances.
-        if True:
-            logger.debug(f"Measuring input pin capacitances of cell {cell_name}.")
-            for input_pin in input_pins_non_inverted:
-                # Input capacitances are not measured for the inverting inputs of differential pairs.
-                logger.info("Measuring input capacitance: {} {}".format(cell_name, input_pin))
-                input_pin_group = new_cell_group.get_group('pin', input_pin)
-
-                result = characterize_input_capacitances(
-                    input_pins=input_pins,
-                    active_pin=input_pin,
-                    output_pins=output_pins,
-                    cell_conf=cell_conf
-                )
-
-                input_pin_group['rise_capacitance'] = result['rise_capacitance'] / conf.capacitance_unit
-                input_pin_group['fall_capacitance'] = result['fall_capacitance'] / conf.capacitance_unit
-                input_pin_group['capacitance'] = result['capacitance'] / conf.capacitance_unit
-        else:
-            logger.warning("Skip measuring input capacitances.")
+        measure_input_capacitances(
+            conf,
+            cell_conf,
+            input_pins,
+            input_pins_non_inverted,
+            output_pins,
+            new_cell_group
+        )
 
         if isinstance(cell_type, Combinational):
             characterize_combinational_output(
@@ -843,6 +832,7 @@ def main():
             )
         elif isinstance(cell_type, Latch):
             logger.info("Characterize latch.")
+            logger.error("Characterization of latches is not yet supported.")
 
             """
             Characterization of latches is very similar to the one of flip-flops. Delays, hold and setup times
@@ -869,6 +859,42 @@ def main():
     with open(args.output, 'w') as f:
         logger.info("Write liberty: {}".format(args.output))
         f.write(str(new_library))
+
+
+def measure_input_capacitances(
+        conf: CharacterizationConfig,
+        cell_conf: CellConfig,
+        input_pins: List[str],
+        input_pins_non_inverted: List[str],
+        output_pins: List[str],
+        cell_group: Group
+):
+    """
+    Measure input capacitances and write them into the `cell_group`.
+    :param conf: 
+    :param cell_conf: 
+    :param input_pins: 
+    :param input_pins_non_inverted: 
+    :param output_pins: 
+    :param cell_group: 
+    :return: 
+    """
+    logger.debug(f"Measuring input pin capacitances of cell {cell_conf.cell_name}.")
+    for input_pin in input_pins_non_inverted:
+        # Input capacitances are not measured for the inverting inputs of differential pairs.
+        logger.info("Measuring input capacitance: {} {}".format(cell_conf.cell_name, input_pin))
+        input_pin_group = cell_group.get_group('pin', input_pin)
+
+        result = characterize_input_capacitances(
+            input_pins=input_pins,
+            active_pin=input_pin,
+            output_pins=output_pins,
+            cell_conf=cell_conf
+        )
+
+        input_pin_group['rise_capacitance'] = result['rise_capacitance'] / conf.capacitance_unit
+        input_pin_group['fall_capacitance'] = result['fall_capacitance'] / conf.capacitance_unit
+        input_pin_group['capacitance'] = result['capacitance'] / conf.capacitance_unit
 
 
 def characterize_combinational_output(
