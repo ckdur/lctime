@@ -673,7 +673,6 @@ def main():
             logger.info("Derive boolean functions for the outputs based on the netlist.")
 
             cell_type = analyze_boolean_functions(
-                cell_type_liberty,
                 cell_type,
                 cell_group,
                 transistor_graph,
@@ -682,6 +681,8 @@ def main():
                 vdd_pin,
                 gnd_pin,
             )
+
+            merge_cell_types(cell_type_liberty, cell_type)
         else:
             # Skip functional abstraction and take the functions provided in the liberty file.
             # output_functions_symbolic = output_functions_user
@@ -776,7 +777,6 @@ def main():
 
 
 def analyze_boolean_functions(
-        cell_type_liberty: CellType,
         cell_type: CellType,
         cell_group: Group,
         transistor_graph: nx.MultiGraph,
@@ -837,17 +837,24 @@ def analyze_boolean_functions(
     #                             output_functions_deduced.items()}
     # output_functions_symbolic = output_functions_deduced.copy()
 
+    return cell_type
+
+
+def merge_cell_types(
+        source_cell_type: CellType,
+        target_cell_type: CellType
+):
     # Merge deduced output functions with the ones read from the liberty file and perform consistency check.
-    for output_symbol, output in cell_type_liberty.outputs.items():
+    for output_symbol, output in source_cell_type.outputs.items():
         output_name = str(output_symbol)
         logger.info(f"User supplied output function: {output_name} = {output_name}")
-        print(output_functions_deduced)
-        assert output_symbol in output_functions_deduced, f"No function has been deduced for output pin '{output_name}'."
+
+        assert output_symbol in target_cell_type.outputs, f"No function has been deduced for output pin '{output_name}'."
         # Consistency check:
         # Verify that the deduced output formula is equal to the one defined in the liberty file.
         logger.info("Check equality of boolean function in liberty file and derived function.")
         equal = functional_abstraction.bool_equals(output.function,
-                                                   output_functions_deduced[output_symbol].function)
+                                                   target_cell_type.outputs[output_symbol].function)
         if not equal:
             msg = "User supplied function does not match the deduced function for pin '{}'".format(output_name)
             logger.error(msg)
@@ -855,9 +862,7 @@ def analyze_boolean_functions(
         if equal:
             # Take the function defined by the liberty file.
             # This might be desired because it is in another form (CND, DNF,...).
-            cell_type.outputs[output_symbol] = output
-
-    return cell_type
+            target_cell_type.outputs[output_symbol] = output
 
 
 def create_missing_pin_groups(
