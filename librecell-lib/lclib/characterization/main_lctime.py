@@ -826,7 +826,6 @@ def main():
                 conf,
                 cell_type,
                 cell_conf,
-                output_pins,
                 input_pins,
                 input_pins_non_inverted,
                 output_capacitances,
@@ -878,7 +877,6 @@ def characterize_combinational_output(
         conf: CharacterizationConfig,
         cell_type: Combinational,
         cell_conf: CellConfig,
-        output_pins,
         input_pins,
         input_pins_non_inverted,
         output_capacitances,
@@ -887,9 +885,9 @@ def characterize_combinational_output(
     assert isinstance(cell_type, Combinational)
     # Measure timing for all input-output arcs.
     logger.debug("Measuring combinational delay arcs.")
-    for output_pin in output_pins:
-        output_pin_symbol = sympy.Symbol(output_pin)
-        output_pin_group = new_cell_group.get_group('pin', output_pin)
+    for output_pin_symbol in cell_type.outputs.keys():
+        output_pin_name = str(output_pin_symbol)
+        output_pin_group = new_cell_group.get_group('pin', output_pin_name)
 
         # Store boolean function of output to liberty.
         output_pin_group.set_boolean_function('function', cell_type.outputs[output_pin_symbol].function)
@@ -907,7 +905,7 @@ def characterize_combinational_output(
             # Find normal operating conditions such that the output is not tri-state.
             models = list(satisfiable(~cell_type.outputs[output_pin_symbol].high_impedance, all_models=True))
             for model in models:
-                logger.info(f"Output '{output_pin}' is low-impedance when {model}.")
+                logger.info(f"Output '{output_pin_name}' is low-impedance when {model}.")
 
             if len(models) > 1:
                 abort("Characterization of tri-state outputs is not supported when the tri-state depends on"
@@ -927,9 +925,9 @@ def characterize_combinational_output(
             related_pin_inverted = cell_conf.complementary_pins.get(related_pin)
             if related_pin_inverted:
                 logger.info("Timing arc (differential input): ({}, {}) -> {}"
-                            .format(related_pin, related_pin_inverted, output_pin))
+                            .format(related_pin, related_pin_inverted, output_pin_name))
             else:
-                logger.info("Timing arc: {} -> {}".format(related_pin, output_pin))
+                logger.info("Timing arc: {} -> {}".format(related_pin, output_pin_name))
 
             # Convert deduced output functions into Python lambda functions.
             output_functions = {
@@ -938,12 +936,12 @@ def characterize_combinational_output(
             }
 
             # Get timing sense of this arc.
-            timing_sense = str(is_unate_in_xi(output_functions[output_pin], related_pin).name).lower()
+            timing_sense = str(is_unate_in_xi(output_functions[output_pin_name], related_pin).name).lower()
             logger.info("Timing sense: {}".format(timing_sense))
 
             result = characterize_comb_cell(
                 input_pins=_input_pins,
-                output_pin=output_pin,
+                output_pin=output_pin_name,
                 related_pin=related_pin,
                 output_functions=output_functions,
 
