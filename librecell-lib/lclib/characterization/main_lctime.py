@@ -542,6 +542,10 @@ def main():
         except Exception as e:
             abort(str(e))
 
+        if len(transistors_abstract) == 0:
+            msg = "No transistors found in cell. (The netlist must be flattened, sub-circuits are not resolved)"
+            abort(msg)
+
         cell_pins = [fix_case(p) for p in cell_pins]
         for t in transistors_abstract:
             t.source_net = fix_case(t.source_net)
@@ -552,10 +556,6 @@ def main():
         spice_ports = get_subcircuit_ports(netlist_file, cell_name)
         logger.info(f"SPICE subcircuit ports: {spice_ports}")
         io_pins = net_util.get_io_pins(cell_pins)
-
-        if len(transistors_abstract) == 0:
-            msg = "No transistors found in cell. (The netlist must be flattened, sub-circuits are not resolved)"
-            abort(msg)
 
         # Detect power pins.
         # TODO: don't decide based only on net name.
@@ -672,7 +672,7 @@ def main():
             # Derive boolean functions for the outputs from the netlist.
             logger.info("Derive boolean functions for the outputs based on the netlist.")
 
-            cell_type = analyze_cell_function(
+            cell_type = analyze_boolean_functions(
                 cell_type_liberty,
                 cell_type,
                 cell_group,
@@ -775,7 +775,7 @@ def main():
         f.write(str(new_library))
 
 
-def analyze_cell_function(
+def analyze_boolean_functions(
         cell_type_liberty: CellType,
         cell_type: CellType,
         cell_group: Group,
