@@ -26,6 +26,7 @@ import os
 import argparse
 import joblib
 import tempfile
+from typing import List, Set
 
 import liberty.parser as liberty_parser
 from liberty.types import *
@@ -671,77 +672,16 @@ def main():
             # Derive boolean functions for the outputs from the netlist.
             logger.info("Derive boolean functions for the outputs based on the netlist.")
 
-            abstracted_circuit = functional_abstraction.analyze_circuit_graph(
-                graph=transistor_graph,
-                pins_of_interest=io_pins,
-                constant_input_pins={
-                    vdd_pin: True,
-                    gnd_pin: False},
-                differential_inputs=differential_inputs,
-                user_input_nets=None
+            cell_type = analyze_cell_function(
+                cell_type_liberty,
+                cell_type,
+                cell_group,
+                transistor_graph,
+                io_pins,
+                differential_inputs,
+                vdd_pin,
+                gnd_pin,
             )
-
-            if abstracted_circuit.latches:
-                # There's some feedback loops in the circuit.
-
-                # Try to recognize sequential cells.
-                detected_cell_type = seq_recognition.extract_sequential_circuit(abstracted_circuit)
-
-                if detected_cell_type:
-                    logger.info(f"Detected sequential circuit:\n{detected_cell_type}")
-
-            else:
-                logger.info("Detected purely combinational circuit.")
-                detected_cell_type = Combinational()
-                detected_cell_type.outputs = abstracted_circuit.outputs
-                detected_cell_type.inputs = abstracted_circuit.get_primary_inputs()
-                if cell_type is None:
-                    cell_type = Combinational()
-
-            if cell_type is None or len(cell_group.groups) == 0:
-                cell_type = detected_cell_type
-            else:
-                # Sanity check: Detected cell type (combinational, latch, ff) must match with the liberty file.
-                if type(detected_cell_type) is not type(cell_type):
-                    msg = f"Mismatch: Detected cell type is {type(detected_cell_type)} " \
-                          f"but liberty says {type(cell_type)}."
-                    logger.error(msg)
-                    assert False, msg
-
-            output_functions_deduced = abstracted_circuit.outputs
-
-            # Log deduced output functions.
-            for output_name, value in output_functions_deduced.items():
-                if value.high_impedance:
-                    logger.info(
-                        f"Deduced output function: {output_name} = {value.function}, tri_state = {value.high_impedance}")
-                else:
-                    logger.info(f"Deduced output function: {output_name} = {value.function}")
-
-            # # Convert keys into strings (they are `sympy.Symbol`s now)
-            # output_functions_deduced = {str(output.name): comb.function for output, comb in
-            #                             output_functions_deduced.items()}
-            # output_functions_symbolic = output_functions_deduced.copy()
-
-            # Merge deduced output functions with the ones read from the liberty file and perform consistency check.
-            for output_symbol, output in cell_type_liberty.outputs.items():
-                output_name = str(output_symbol)
-                logger.info(f"User supplied output function: {output_name} = {output_name}")
-                print(output_functions_deduced)
-                assert output_symbol in output_functions_deduced, f"No function has been deduced for output pin '{output_name}'."
-                # Consistency check:
-                # Verify that the deduced output formula is equal to the one defined in the liberty file.
-                logger.info("Check equality of boolean function in liberty file and derived function.")
-                equal = functional_abstraction.bool_equals(output.function,
-                                                           output_functions_deduced[output_symbol].function)
-                if not equal:
-                    msg = "User supplied function does not match the deduced function for pin '{}'".format(output_name)
-                    logger.error(msg)
-
-                if equal:
-                    # Take the function defined by the liberty file.
-                    # This might be desired because it is in another form (CND, DNF,...).
-                    cell_type.outputs[output_symbol] = output
         else:
             # Skip functional abstraction and take the functions provided in the liberty file.
             # output_functions_symbolic = output_functions_user
@@ -833,6 +773,91 @@ def main():
     with open(args.output, 'w') as f:
         logger.info("Write liberty: {}".format(args.output))
         f.write(str(new_library))
+
+
+def analyze_cell_function(
+        cell_type_liberty: CellType,
+        cell_type: CellType,
+        cell_group: Group,
+        transistor_graph: nx.MultiGraph,
+        io_pins: Set,
+        differential_inputs: Dict[str, str],
+        vdd_pin: str,
+        gnd_pin: str,
+) -> CellType:
+    abstracted_circuit = functional_abstraction.analyze_circuit_graph(
+        graph=transistor_graph,
+        pins_of_interest=io_pins,
+        constant_input_pins={
+            vdd_pin: True,
+            gnd_pin: False},
+        differential_inputs=differential_inputs,
+        user_input_nets=None
+    )
+
+    if abstracted_circuit.latches:
+        # There's some feedback loops in the circuit.
+
+        # Try to recognize sequential cells.
+        detected_cell_type = seq_recognition.extract_sequential_circuit(abstracted_circuit)
+
+        if detected_cell_type:
+            logger.info(f"Detected sequential circuit:\n{detected_cell_type}")
+
+    else:
+        logger.info("Detected purely combinational circuit.")
+        detected_cell_type = Combinational()
+        detected_cell_type.outputs = abstracted_circuit.outputs
+        detected_cell_type.inputs = abstracted_circuit.get_primary_inputs()
+        if cell_type is None:
+            cell_type = Combinational()
+
+    if cell_type is None or len(cell_group.groups) == 0:
+        cell_type = detected_cell_type
+    else:
+        # Sanity check: Detected cell type (combinational, latch, ff) must match with the liberty file.
+        if type(detected_cell_type) is not type(cell_type):
+            msg = f"Mismatch: Detected cell type is {type(detected_cell_type)} " \
+                  f"but liberty says {type(cell_type)}."
+            logger.error(msg)
+            assert False, msg
+
+    output_functions_deduced = abstracted_circuit.outputs
+
+    # Log deduced output functions.
+    for output_name, value in output_functions_deduced.items():
+        if value.high_impedance:
+            logger.info(
+                f"Deduced output function: {output_name} = {value.function}, tri_state = {value.high_impedance}")
+        else:
+            logger.info(f"Deduced output function: {output_name} = {value.function}")
+
+    # # Convert keys into strings (they are `sympy.Symbol`s now)
+    # output_functions_deduced = {str(output.name): comb.function for output, comb in
+    #                             output_functions_deduced.items()}
+    # output_functions_symbolic = output_functions_deduced.copy()
+
+    # Merge deduced output functions with the ones read from the liberty file and perform consistency check.
+    for output_symbol, output in cell_type_liberty.outputs.items():
+        output_name = str(output_symbol)
+        logger.info(f"User supplied output function: {output_name} = {output_name}")
+        print(output_functions_deduced)
+        assert output_symbol in output_functions_deduced, f"No function has been deduced for output pin '{output_name}'."
+        # Consistency check:
+        # Verify that the deduced output formula is equal to the one defined in the liberty file.
+        logger.info("Check equality of boolean function in liberty file and derived function.")
+        equal = functional_abstraction.bool_equals(output.function,
+                                                   output_functions_deduced[output_symbol].function)
+        if not equal:
+            msg = "User supplied function does not match the deduced function for pin '{}'".format(output_name)
+            logger.error(msg)
+
+        if equal:
+            # Take the function defined by the liberty file.
+            # This might be desired because it is in another form (CND, DNF,...).
+            cell_type.outputs[output_symbol] = output
+
+    return cell_type
 
 
 def create_missing_pin_groups(
