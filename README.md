@@ -29,18 +29,6 @@ Example for Arch Linux:
 sudo pacman -S python ngspice z3
 ```
 
-#### Installing with pip
-
-It is recommended to use a Python 'virtual environment' for installing all Python dependencies:
-```sh
-# Create a new virtual environment
-python3 -m venv my-librecell-env
-# Activate the virtual environment
-source ./my-librecell-env/bin/activate
-
-pip3 install librecell
-```
-
 #### Installing from git
 It is recommended to use a Python 'virtual environment' for installing all Python dependencies:
 ```sh
@@ -54,21 +42,10 @@ Install from git:
 ```sh
 git clone https://codeberg.org/tok/librecell.git
 cd librecell
+./install.sh
 
-# Install librecell-common
-cd librecell-common
-python3 setup.py develop
-cd ..
-
-# Install lclayout
-cd librecell-layout
-python3 setup.py develop
-cd ..
-
-# Install lclib
-cd librecell-lib
-python3 setup.py develop
-cd ..
+# Alternatively use ./install_develop.sh to install symlinks.
+# This allows to edit the code with immediate effect on the installed program.
 ```
 
 Now, check if the command-line scripts are in the current search path:
@@ -80,6 +57,19 @@ If this shows the documentation of the `lclayout` command, then things are fine.
 ```sh
 # Instead of executing this line each time it can be added to ~/.bashrc
 export PATH=$PATH:$HOME/.local/bin
+```
+
+#### Installing with pip
+*Note*: The version PyPI is often not the most recent one. Consider installing from git to get the most recent version.
+
+It is recommended to use a Python 'virtual environment' for installing all Python dependencies:
+```sh
+# Create a new virtual environment
+python3 -m venv my-librecell-env
+# Activate the virtual environment
+source ./my-librecell-env/bin/activate
+
+pip3 install librecell
 ```
 
 #### Generate a layout
