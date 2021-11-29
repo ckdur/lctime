@@ -714,15 +714,23 @@ def analyze_circuit_graph(graph: nx.MultiGraph,
 
     logger.debug("Complementary nets:")
     for net, f in complementary_formulas.items():
-        logger.debug(' ', net, ':', f)
+        logger.debug(f' {net}: {f}')
 
-    logger.debug("High impedance conditions:")
+    logger.debug(f"High impedance conditions ({len(high_impedance_conditions)}):")
     for net, condition in high_impedance_conditions.items():
-        logger.debug(' ', net, ':', condition)
+        msg = f"  '{net}' is high-impedance when '{condition}'"
+        if satisfiable(condition):
+            logger.warning(msg)
+        else:
+            logger.debug(msg)
 
-    logger.debug("Short circuit conditions:")
+    logger.debug(f"Short circuit conditions (len(short_circuit_conditions)):")
     for net, condition in short_circuit_conditions.items():
-        logger.debug(' ', net, ':', condition)
+        msg = f" short circuit on '{net}' when '{condition}'"
+        if satisfiable(condition):
+            logger.warning(msg)
+        else:
+            logger.debug(msg)
 
     # Create dependency graph to detect feedback loops.
     dependency_graph_high = _formula_dependency_graph(formulas_high)
