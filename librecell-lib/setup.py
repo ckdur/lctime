@@ -26,7 +26,7 @@ def readme():
 
 
 setup(name='librecell-lib',
-      version='0.0.13',
+      version='0.0.15',
       description='CMOS standard cell characterization kit.',
       long_description=readme(),
       long_description_content_type="text/markdown",
@@ -41,7 +41,7 @@ setup(name='librecell-lib',
       url='https://codeberg.org/tok/librecell',
       author='T. Kramer',
       author_email='code@tkramer.ch',
-      license='AGPL',
+      license='AGPL-3.0-or-later',
       packages=find_packages(),
       package_data={'': ['examples/*', 'test_data/*']},
       entry_points={
