@@ -1,6 +1,0 @@
-LibreCell contains multiple sub-projects with different licences.
-The full licence texts are in the LICENCE files in the sub-project folders.
-
-* librecell-common: GPL-v3-or-later
-* librecell-layout: CERN OHL-S v2
-* librecell-lib: AGPL-v3-or-later

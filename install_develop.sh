@@ -7,15 +7,6 @@ set -e
 
 INSTALL="pip install --upgrade --editable"
 
-# Install library code shared by multiple parts of librecell.
-$INSTALL ./librecell-common
+# Install lctime
+$INSTALL .
 
-# Install lclayout
-$INSTALL ./librecell-layout
-
-# Install lclib
-$INSTALL ./librecell-lib
-
-#cd librecell-meta
-#python3 setup.py install
-#cd ..

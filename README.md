@@ -1,99 +1,131 @@
-# LibreCell
-LibreCell aims to be a toolbox for automated synthesis of CMOS logic cells.
+# LibreCell - Lib
+Characterization kit for CMOS cells.
+This Python package comes with a some stand-alone command-line tools:
 
-LibreCell is structured in multiple sub-projects:
-* [librecell-layout](librecell-layout): Automated layout generator for CMOS standard cells.
-* [librecell-lib](librecell-lib): Characterization kit for CMOS cells and tool for handling liberty files.
-* [librecell-common](librecell-common): Code that is used across different LibreCell projects such as a netlist parser.
-* [librecell-meta](librecell-meta): Convinience Python package for easier installation.
+* Most notably `lctime` for *recognition* and *characterization* of combinational and sequential cells.
+* `sp2bool`: Recognition ('reverse engineering') of transistor networks. This is intended for analyzis and debugging.
+* `libertyviz`: Visualization of NDLM tables.
 
-The project is in a very early stage and might not yet be ready for productive use.
-Project structure and API might change heavily in near future.
+## Getting started
 
-### Getting started
-LibreCell can be installed using the Python package manager `pip` or directly from the git repository.
+```
+# Clone this repository.
+git clone https://codeberg.org/librecell/lctime
+cd lctime
 
-#### Dependencies
-The following dependencies must be installed manually:
-* python3
-* ngspice http://ngspice.sourceforge.net/ : SPICE simulator used for cell characterization.
-* z3 https://github.com/Z3Prover/z3 : SMT solver.
+# Install
+./install_develop.sh
 
-Optional dependencies (not required for default configuration):
-* GLPK https://www.gnu.org/software/glpk : ILP/MIP solver
-
-Depending on your linux distribution this packages can be installed using the package manager.
-
-Example for Arch Linux:
-```sh
-sudo pacman -S python ngspice z3
+# Run tests
+cd tests
+./run_tests.sh
 ```
 
-#### Installing from git
-It is recommended to use a Python 'virtual environment' for installing all Python dependencies:
+### Characterize a cell
+
+An ready-to-run example can be found in the `examples` folder.
+The script `run_example.sh` should characterize the `INVX1` inverter.
+
+The following example determines the input capacitances and timing delays of a combinational cell.
+
+It is assumed that `FreePDK45` is installed in the users home directory.
+
+Required inputs are:
+* --liberty: A template liberty file which defines how the cells should be characterized.
+* --include: SPICE files or models to be included.
+* --spice: A SPICE file which contains the transistor level circuit of the cell (best including extracted parasitic capacitances).
+* --cell: Name of the cell to be characterized.
+* --output: Output liberty file which will contain the characterization data.
+
+Characterize a single cell:
 ```sh
-# Create a new virtual environment
-python3 -m venv my-librecell-env
-# Activate the virtual environment
-source ./my-librecell-env/bin/activate
+lctime --liberty ~/FreePDK45/osu_soc/lib/files/gscl45nm.lib \
+	--include ~/FreePDK45/osu_soc/lib/files/gpdk45nm.m \
+    --output-loads "0.05, 0.1, 0.2, 0.4, 0.8, 1.6" \
+    --slew-times "0.1, 0.2, 0.4, 0.8, 1.6, 3.2" \
+	--spice ~/FreePDK45/osu_soc/lib/source/netlists/AND2X1.pex.netlist \
+	--cell AND2X1 \
+	--output /tmp/and2x1.lib
 ```
 
-Install from git:
+Characterize multiple cells in the same run:
 ```sh
-git clone https://codeberg.org/tok/librecell.git
-cd librecell
-./install.sh
-
-# Alternatively use ./install_develop.sh to install symlinks.
-# This allows to edit the code with immediate effect on the installed program.
+lctime --liberty ~/FreePDK45/osu_soc/lib/files/gscl45nm.lib \
+	--include ~/FreePDK45/osu_soc/lib/files/gpdk45nm.m \
+    --output-loads "0.05, 0.1, 0.2, 0.4, 0.8, 1.6" \
+    --slew-times "0.1, 0.2, 0.4, 0.8, 1.6, 3.2" \
+	--spice ~/FreePDK45/osu_soc/lib/source/netlists/*.pex.netlist \
+	--cell INVX1 AND2X1 XOR2X1 \
+	--output /tmp/invx1_and2x1_xor2x1.lib
 ```
 
-Now, check if the command-line scripts are in the current search path:
-```sh
-lclayout --help
-```
-If this shows the documentation of the `lclayout` command, then things are fine. Otherwise, the `PATH` environment variable needs to be updated to include `$HOME/.local/bin`.
+### Cell recognition
 
-```sh
-# Instead of executing this line each time it can be added to ~/.bashrc
-export PATH=$PATH:$HOME/.local/bin
-```
-
-#### Installing with pip
-*Note*: The version PyPI is often not the most recent one. Consider installing from git to get the most recent version.
-
-It is recommended to use a Python 'virtual environment' for installing all Python dependencies:
-```sh
-# Create a new virtual environment
-python3 -m venv my-librecell-env
-# Activate the virtual environment
-source ./my-librecell-env/bin/activate
-
-pip3 install librecell
-```
-
-#### Generate a layout
-Generate a layout from a SPICE netlist which includes the transistor sizes.
-```sh
-cd librecell-layout
-mkdir /tmp/mylibrary
-lclayout --output-dir /tmp/mylibrary --tech examples/dummy_tech.py --netlist examples/cells.sp --cell AND2X1
-# Use a GDS viewer such as KLayout to inspect the generated layout file `/tmp/mylibrary/*.gds`
-```
-
-### Known issues
-
-#### Reproducibility
-You may want to generate standard cells in a fully reproducable manner.
-Right now there is some non-determinism in LibreCell that has not been investigated yet.
-The current workaround is to set the `PYTHONHASHSEED` environment variable.
+Cell types can be recognized automatically such that only a minimal
+liberty file needs to be supplied.
 
 ```sh
-export PYTHONHASHSEED=42
-lclayout ...
+cd examples
+lctime --liberty template.lib \
+    --analize-cell-function \
+    --include gpdk45nm.m \
+    --spice INVX1.pex.netlist \
+    --cell INVX1 \
+    --output-loads "0.05, 0.1, 0.2, 0.4, 0.8, 1.6" \
+    --slew-times "0.1, 0.2, 0.4, 0.8, 1.6, 3.2" \
+    --output invx1.lib
 ```
 
-## Contact
-```python
-"codextkramerych".replace("x", "@").replace("y", ".")
+### Sequential cells
+
+Characterization of sequential cells involves finding hold, setup, removal and recovery constraints.
+
+For an example see `examples/run_example_flip-flop.sh`.
+
+### Visualization
+
+Vizualize the result:
+```sh
+libertyviz -l /tmp/and2x1.lib --cell AND2X1 --pin Y --related-pin A --table cell_rise
 ```
+
+### Characterize a cell with differential inputs
+
+Differential inputs can be specified in the liberty template with the `complementary_pin` attribute.
+Only the non-inverted pin should appear in the liberty file.
+
+Differential pairs can also be recognized based on their naming. For example if pairs are named with suffixes `_p` for
+the non-inverted pin and `_n` for the inverted pin:
+
+```sh
+lctime --diff %_p,%_n ...
+```
+
+### Merging liberty files
+`lctime` will output a liberty file containing only one cell. The `libertymerge` command allows to merge this kind of
+output file back into the liberty template.
+
+The following example will take `base_liberty.lib` as a template and update its `cell` entries with the data found in
+the liberty files in the `characterization` directory.
+```sh
+libertymerge -b base_liberty.lib \
+    -o output_liberty.lib \
+    -u characterization/*.lib
+```
+This approach allows to run characterization runs of multiple cells independently and in parallel (e.g using `make`).
+
+### Recognize a cell
+`lctime` can recognize the boolean function of cells based on the transistor network. Besides combinational functions
+also memory-loops can be found and abstracted into latches or flip-flops.
+The `sp2bool` command can be used to analyze cells and dump information about their behaviour. This can be useful for debugging and verification.
+
+Example:
+```sh
+# Analyze a combinational cell. 
+sp2bool sp2bool --spice ~/FreePDK45/osu_soc/lib/files/cells.sp --cell NAND2X1
+
+# Analyze a flip-flop with asynchronous set and reset signals.
+sp2bool sp2bool --spice ~/FreePDK45/osu_soc/lib/files/cells.sp --cell DFFSR
+```
+
+For cells with *differential* inputs the `--diff` argument must be used to specify differential pairs.
