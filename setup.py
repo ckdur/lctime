@@ -54,6 +54,7 @@ setup(name='lctime',
           ]
       },
       install_requires=[
+          'klayout>=0.27.3', # GPLv3
           'numpy==1.*',  # BSD
           'sympy==1.6.*',  # BSD
           'matplotlib==3.*',
