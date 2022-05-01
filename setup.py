@@ -38,7 +38,7 @@ setup(name='lctime',
           'Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)',
           'Programming Language :: Python :: 3'
       ],
-      url='https://codeberg.org/tok/librecell',
+      url='https://codeberg.org/librecell/lctime',
       author='T. Kramer',
       author_email='code@tkramer.ch',
       license='AGPL-3.0-or-later',
