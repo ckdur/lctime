@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2022 Thomas Kramer <code@tkramer.ch>
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 from pysmt.shortcuts import *
 
 # Define 4-valued logic type.
