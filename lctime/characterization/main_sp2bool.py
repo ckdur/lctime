@@ -35,6 +35,8 @@ import networkx as nx
 import sympy
 import re
 
+from ..licence import licence_notice_string_single_line
+
 
 def main():
     """
@@ -42,6 +44,9 @@ def main():
     Currently only combinatorial cells are supported excluding tri-state cells.
     :return:
     """
+
+    print(licence_notice_string_single_line())
+    print()
 
     logger = logging.getLogger(__name__)
     logger.info("sp2bool main function")
