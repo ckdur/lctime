@@ -26,7 +26,7 @@ def readme():
 
 
 setup(name='lctime',
-      version='0.0.16',
+      version='0.0.17',
       description='CMOS standard-cell characterization kit.',
       long_description=readme(),
       long_description_content_type="text/markdown",
