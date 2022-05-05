@@ -122,10 +122,10 @@ The `sp2bool` command can be used to analyze cells and dump information about th
 Example:
 ```sh
 # Analyze a combinational cell. 
-sp2bool sp2bool --spice ~/FreePDK45/osu_soc/lib/files/cells.sp --cell NAND2X1
+sp2bool --spice ~/FreePDK45/osu_soc/lib/files/cells.sp --cell NAND2X1
 
 # Analyze a flip-flop with asynchronous set and reset signals.
-sp2bool sp2bool --spice ~/FreePDK45/osu_soc/lib/files/cells.sp --cell DFFSR
+sp2bool --spice ~/FreePDK45/osu_soc/lib/files/cells.sp --cell DFFSR
 ```
 
 For cells with *differential* inputs the `--diff` argument must be used to specify differential pairs.
