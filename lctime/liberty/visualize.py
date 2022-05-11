@@ -116,7 +116,7 @@ def plot_timing_ndlm(library: Group, table: Group):
 
 def test_plot_nldm():
     import os.path
-    lib_file = os.path.join(os.path.dirname(__file__), '../../test_data/gscl45nm.lib')
+    lib_file = os.path.join(os.path.dirname(__file__), '../../test_data/freepdk45/gscl45nm.lib')
 
     data = open(lib_file).read()
 
