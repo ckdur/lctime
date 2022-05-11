@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# SPDX-FileCopyrightText: 2022 Thomas Kramer
+#
+# SPDX-License-Identifier: CC0-1.0
+
 # Characterize the DFFSR flip-flop (with set and reset).
 
 NETLIST_DIR="../test_data/freepdk45/netlists_pex"
