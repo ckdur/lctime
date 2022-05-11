@@ -3,7 +3,7 @@ Upstream-Name: lctime
 Upstream-Contact: Thomas Kramer <code@tkramer.ch>
 Source: https://codeberg.org/librecell/lctime
 
-# FreePDK34
+# FreePDK45
 Files: test_data/freepdk45/*
 Copyright: 2007 W. Rhett Davis, Paul Franzon, Michael Bucher, and Sunil Basavarajaiah, North Carolina State University
 Copyright: 2008 W. Rhett Davis, Michael Bucher, and Sunil Basavarajaiah, North Carolina State University (ncsu_basekit subtree), James Stine, and Ivan Castellanos, and Oklahoma State University (osu_soc subtree)
