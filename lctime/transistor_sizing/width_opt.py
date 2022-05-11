@@ -1,5 +1,7 @@
 # Copyright (c) 2019-2020 Thomas Kramer.
 # SPDX-FileCopyrightText: 2022 Thomas Kramer <code@tkramer.ch>
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
 
 # # OBSOLETE: Interesting approach, but not up to date with the rest of the program.
 # from scipy import optimize
