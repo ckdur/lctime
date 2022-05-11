@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2022 Thomas Kramer
+//
+// SPDX-License-Identifier: CC0-1.0
+
 library (gscl45nm) {
   capacitive_load_unit (1.0, pf);
   current_unit: "1uA";

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2022 Thomas Kramer
+#
+# SPDX-License-Identifier: CC0-1.0
+
 pipeline:
     build:
         #image: python:3.8-bullseye # For local debuggin: podman run -it --rm python:3.8-bullseye

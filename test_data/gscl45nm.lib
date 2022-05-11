@@ -1,4 +1,12 @@
 /*
+ * SPDX-FileCopyrightText: 2007 W. Rhett Davis, Paul Franzon, Michael Bucher, and Sunil Basavarajaiah, North Carolina State University
+ * SPDX-FileCopyrightText: 2008 W. Rhett Davis, Michael Bucher, and Sunil Basavarajaiah, North Carolina State University (ncsu_basekit subtree) James Stine, and Ivan Castellanos
+ * SPDX-FileCopyrightText: 2011 W. Rhett Davis, and Harun Demircioglu, North Carolina State University
+ *
+ * SPDX-License-Identifier: APACHE-2.0
+ */
+
+/*
  delay model :       typ
  check model :       typ
  power model :       typ

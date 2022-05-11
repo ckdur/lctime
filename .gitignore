@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2022 Thomas Kramer
+#
+# SPDX-License-Identifier: CC0-1.0
+
 *.pyc
 *_nda.py
 */.idea
