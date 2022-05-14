@@ -14,7 +14,7 @@ import networkx as nx
 
 from typing import Any, Tuple, List
 
-from lccommon.data_types import Transistor, ChannelType
+from ..lccommon.data_types import Transistor, ChannelType
 
 import logging
 

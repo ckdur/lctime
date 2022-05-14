@@ -11,11 +11,11 @@ from typing import List, Dict, Callable, Optional
 
 from itertools import product
 import os
-import tempfile
+
 from .util import *
 from .piece_wise_linear import *
 from .ngspice_subprocess import simulate_cell
-from lccommon.net_util import get_subcircuit_ports
+from ..lccommon.net_util import get_subcircuit_ports
 
 import logging
 

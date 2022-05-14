@@ -3,22 +3,15 @@
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-from liberty import parser as liberty_parser
-from liberty.types import *
-
-from ..liberty import util as liberty_util
 from ..logic import functional_abstraction
 from ..logic import seq_recognition
 from . import util
 
 import argparse
-from copy import deepcopy
 from PySpice.Unit import *
 from lccommon import net_util
-from lccommon.net_util import load_transistor_netlist, load_netlist, extract_transistors
+from ..lccommon.net_util import load_netlist, extract_transistors
 import networkx as nx
-import sympy
-import re
 
 from ..licence import licence_notice_string_single_line
 

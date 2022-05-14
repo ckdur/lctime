@@ -8,15 +8,13 @@ Measurement of the input capacitance by driving the input pin with a constant cu
 """
 
 import os
-from typing import List, Optional
 
 from itertools import product
 
 from .util import *
 from .piece_wise_linear import *
 from .ngspice_subprocess import run_simulation
-from lccommon.net_util import get_subcircuit_ports
-import tempfile
+from ..lccommon.net_util import get_subcircuit_ports
 import logging
 
 from scipy import interpolate

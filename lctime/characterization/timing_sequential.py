@@ -101,7 +101,7 @@ def ff_find_stabilization_time(
     raise NotImplementedError()
 
 
-def find_minimum_pulse_width(
+def find_minimum_clock_pulse_width(
         cell_config: CellConfig,
         ff_clock_edge_polarity: bool,
         clock_input: str,

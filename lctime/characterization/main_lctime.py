@@ -32,8 +32,8 @@ from .input_capacitance import characterize_input_capacitances
 
 from copy import deepcopy
 
-from lccommon import net_util
-from lccommon.net_util import load_transistor_netlist, is_ground_net, is_supply_net
+from ..lccommon import net_util
+from ..lccommon.net_util import load_transistor_netlist, is_ground_net, is_supply_net
 import networkx as nx
 from sympy.logic import satisfiable
 import sympy.logic.boolalg
@@ -1205,7 +1205,7 @@ def characterize_flip_flop_output(
             data_out_pin = str(data_out_pin)
 
             def find_min_clock_pulse_width(clock_pulse_polarity: bool, rising_data_edge: bool):
-                min_clock_pulse_width, delay = find_minimum_pulse_width(
+                min_clock_pulse_width, delay = find_minimum_clock_pulse_width(
                     cell_config=cell_conf,
                     ff_clock_edge_polarity=clock_edge_polarity,
                     clock_input=clock_pin,

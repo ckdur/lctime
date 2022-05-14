@@ -14,7 +14,7 @@
 #
 # from ..liberty.util import get_pin_information
 # from ..characterization.util import read_trip_points_from_liberty
-# from lccommon.net_util import load_subcircuit
+# from ..lccommon.net_util import load_subcircuit
 # from ..characterization.timing_combinatorial import measure_comb_cell
 # from liberty.parser import parse_liberty
 # from liberty.types import select_cell

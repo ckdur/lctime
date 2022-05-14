@@ -14,7 +14,6 @@ import sympy
 from sympy.logic import satisfiable, simplify_logic as sympy_simplify_logic
 from sympy.logic import boolalg
 
-from lccommon.data_types import ChannelType
 import logging
 
 from ..cell_types import Latch, SingleEdgeDFF
