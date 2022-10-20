@@ -1093,7 +1093,7 @@ def characterize_flip_flop_output(
     ff_group.set_boolean_function('next_state', cell_type.next_state)
     if cell_type.async_preset:
         ff_group.set_boolean_function('preset', cell_type.async_preset)
-    if cell_type.async_preset:
+    if cell_type.async_clear:
         ff_group.set_boolean_function('clear', cell_type.async_clear)
 
     # Find clock pin.
