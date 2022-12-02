@@ -15,7 +15,7 @@ pipeline:
             - apt install -y python3-numpy python3-scipy python3-matplotlib python3-networkx python3-sympy python3-joblib python3-z3 
             - apt install -y libjpeg-dev # Weird dependency.
             - ./install.sh 
-            - ./tests/run_tests.sh
+            - ./run_tests.sh
 
 # Run CI only on master branch.
 branches: [ master ]
