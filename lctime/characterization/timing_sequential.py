@@ -14,7 +14,7 @@ from itertools import count
 from .ngspice_subprocess import simulate_cell
 
 from .util import *
-from lccommon.net_util import get_subcircuit_ports
+from ..lccommon.net_util import get_subcircuit_ports
 from .piece_wise_linear import *
 
 from scipy import optimize
