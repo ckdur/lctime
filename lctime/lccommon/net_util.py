@@ -5,7 +5,7 @@
 
 from ..lccommon.data_types import *
 import networkx as nx
-from typing import Tuple, List, Set, Iterable
+from typing import Tuple, List, Set, Iterable, Dict
 import klayout.db as db
 
 import logging
@@ -27,6 +27,72 @@ def get_subcircuit_ports(file: str, subckt_name: str) -> List[str]:
     return pins
 
 
+
+class LctimeSpiceReaderDelegate(db.NetlistSpiceReaderDelegate):
+    """
+    """
+
+    def parse_element(self, element_specification: str, element: str) -> db.ParseElementData:
+        """
+        Parse an element card.
+        Ignores device parameters. They are not necessary for extracting the logic function of a CMOS cell.
+        Used to work around the issue that KLayout does not deal with device parameters which are passed via subcircuit parameters.
+        """
+
+        if element.upper() == "M":
+            # Parse mosfet and ignore parameters.
+            args = element_specification.split() # Split on whitespace.
+
+            # Strip parameters
+            args = [arg for arg in args if not "=" in arg]
+            
+            if len(args) not in [4, 5]:
+                raise Exception("Mosfet is required to have 3 or 4 nets and a model.")
+            
+            data = db.ParseElementData()
+
+            data.net_names = args[0:-1]
+            data.model_name = args[-1]
+
+            return data
+
+            
+        else:
+            return db.NetlistSpiceReaderDelegate.parse_element(self, element_specification, element)
+
+    def element(self, circuit: db.Circuit, el: str, name: str, model: str, value, nets: List[db.Net],
+                params: Dict[str, float]):
+        """
+        Process a SPICE element. All elements except 4-terminal MOS transistors are left unchanged.
+        :return: True iff the device has not been ignored and put into the netlist.
+        """
+
+        if el != 'M' or len(nets) != 4:
+            # All other elements are left to the standard implementation.
+            return super().element(circuit, el, name, model, value, nets, params)
+        else:
+            # Provide a device class.
+            cls = circuit.netlist().device_class_by_name(model)
+            if not cls:
+                # Create MOS3Transistor device class if it does not yet exist.
+                cls = db.DeviceClassMOS3Transistor()
+                cls.name = model
+                circuit.netlist().add(cls)
+
+            # Create MOS3 device.
+            device: db.Device = circuit.create_device(cls, name)
+            # Configure the MOS3 device.
+            for terminal_name, net in zip(['S', 'G', 'D'], nets):
+                device.connect_terminal(terminal_name, net)
+
+            # Parameters in the model are given in micrometer units, so
+            # we need to translate the parameter values from SI to um values.
+            device.set_parameter('W', params.get('W', 0) * 1e6)
+            device.set_parameter('L', params.get('L', 0) * 1e6)
+
+            return True
+
+        
 def load_netlist(path: str) -> db.Netlist:
     """
     Load a SPICE netlist.
@@ -35,11 +101,14 @@ def load_netlist(path: str) -> db.Netlist:
     """
     netlist = db.Netlist()
     netlist.case_sensitive = True
-    spice_reader = db.NetlistSpiceReader()
+    spice_reader = db.NetlistSpiceReader(LctimeSpiceReaderDelegate())
     netlist.read(path, spice_reader)
 
     cell_names = ", ".join(sorted({c.name for c in netlist.each_circuit()}))
     logger.debug(f"Loaded cells: '{cell_names}'")
+
+    logger.debug("flattening netlist")
+    netlist.flatten()
     
     return netlist
 
