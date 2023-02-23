@@ -734,7 +734,8 @@ def main():
                 cell_type,
                 cell_conf,
                 related_pin_transition,
-                input_transition_times
+                input_transition_times,
+                output_capacitances=output_capacitances
             )
         elif isinstance(cell_type, Latch):
             logger.info("Characterize latch.")
@@ -949,16 +950,19 @@ def characterize_combinational_output(
         new_library: Group,
         new_cell_group: Group,
         conf: CharacterizationConfig,
-        cell_type: Combinational,
+        cell_type: CellType,
         cell_conf: CellConfig,
         input_pins: List[str],
         input_pins_non_inverted: List[str],
         output_capacitances: np.ndarray,
         input_transition_times: np.ndarray
 ):
-    assert isinstance(cell_type, Combinational)
+    assert isinstance(cell_type, Combinational) or isinstance(cell_type, SingleEdgeDFF)
+    
+    is_clock_to_output_arc = isinstance(cell_type, SingleEdgeDFF)
+    
     # Measure timing for all input-output arcs.
-    logger.debug("Measuring combinational delay arcs.")
+    logger.debug("Measuring delay arcs.")
     for output_pin_symbol in cell_type.outputs.keys():
         output_pin_name = str(output_pin_symbol)
         output_pin_group = new_cell_group.get_group('pin', output_pin_name)
@@ -1073,6 +1077,7 @@ def characterize_flip_flop_output(
         cell_conf: CellConfig,
         related_pin_transition: np.ndarray,
         input_transition_times: np.ndarray,
+        output_capacitances: np.ndarray,
 ):
     assert isinstance(cell_type, SingleEdgeDFF)
 
@@ -1136,14 +1141,24 @@ def characterize_flip_flop_output(
                                          ]
     logger.debug(f"Output pins that depend on the internal state: {data_out_pins}")
 
+    
+    # Remember a clock pulse width which for sure samples a stable data signal.
+    clock_pulse_width_guess = 0
+
+    # TODO use this function to simplify the below code.
+    ## Find data input pins which can control the output pin.
+    #control_and_observe_pins = find_flipflop_state_control_and_observe_pins(cell_type, preset_clear_input)
+    #assert len(control_and_observe_pins) > 0, "No input pin found which can control the flip-flop state."
+    
+    
     # Characterize setup/hold for each data pin.
     for i, data_in_pin in enumerate(data_in_pins):
         logger.info(f"Measure constraints of pin {data_in_pin} ({i}/{len(data_in_pins)}).")
+
         # Find all assignments of the other data pins such that the data pin controls
         # the internal state.
         # Find values of the other pins such that:
         #  next_state(data_in_pin=0, other_pins) != next_state(data_in_pin=1, other_pins)
-
         next_state_0 = cell_type.next_state.subs({data_in_pin: False})
         next_state_1 = cell_type.next_state.subs({data_in_pin: True})
         models = list(satisfiable(next_state_0 ^ next_state_1, all_models=True))
@@ -1233,6 +1248,9 @@ def characterize_flip_flop_output(
             min_pulse_width_high, _delay = max(find_min_clock_pulse_width(True, False),
                                                find_min_clock_pulse_width(True, True))
             logger.info(f"min_pulse_width_high = {min_pulse_width_high} s")
+            
+            # Find the shortest clock pulse width which samles a stable data signal for all cases.
+            clock_pulse_width_guess = max(clock_pulse_width_guess, min_pulse_width_low, min_pulse_width_high)
 
             # Write information on clock pin to liberty.
             # TODO: minimum pulse width is potentially computed for many different input combinations. Take min/max of them! (Now just the last one will be stored)
@@ -1304,16 +1322,162 @@ def characterize_flip_flop_output(
 
                 input_pin_group.groups.append(timing_group)
 
-    # TODO: Measure clock-to-output delays.
+    
+    # Measure clock-to-output delays.
+    for data_out_pin in data_out_pins:
+        
+        logger.info(f"Measure clock-to-output delay for output '{data_out_pin}'")
+        
+        output_function = cell_type.outputs[data_out_pin].function
+        logger.info(f"Output function: {output_function}")
+        
+        # Convert output pin to string
+        data_out_pin_name = str(data_out_pin)
+    
+        output_pin_group = new_cell_group.get_group('pin', data_out_pin_name)
+        output_pin_group.set_boolean_function('function', output_function)
+        related_pin = clock_pin
+        
+        # Find data input pins which can control the output pin.
+        possible_input_pins = find_flipflop_state_control_and_observe_pins(cell_type, preset_clear_input)
 
-    # output_pin_group = new_cell_group.get_group('pin', data_out_pin)
-    # related_pin = clock_pin
-    #
-    # timing_group = Group(
-    #     'timing',
-    #     attributes={
-    #         'timing_type': [f'rising_edge'],
-    #         'related_pin': [EscapedString(related_pin)]
-    #     },
-    #     groups=[cell_rise, cell_fall]
-    # )
+        assert len(possible_input_pins) > 0, "No input pin found which can control the flip-flop state."
+            
+        # Select an input pin and a combination of other input values such that the input pin controls output of the flip-flop.
+        data_in_pin, static_input_values, observer_outputs = possible_input_pins[0]
+
+        assert data_out_pin in observer_outputs, f"Flip-flop state is not observable from {data_out_pin} when {static_input_values}."
+
+        # Translate logic values to voltages.
+        static_input_voltages = {
+            pin: value * cell_conf.global_conf.supply_voltage 
+            for pin, value in static_input_values.items()
+        }
+
+        logger.info(f"Use input pin {data_in_pin} with other pin values {static_input_voltages}")
+     
+        for clock_transition_time in related_pin_transition:
+            for output_capacitance in output_capacitances:
+        
+                output_load_capacitances = {data_out_pin_name: output_capacitance} 
+                
+                for data_edge_polarity in [False, True]:
+                    
+                    # Choose setup and hold time to be used for the delay measurement.
+                    settings = {
+                        CalcMode.BEST: (1e-9, 1e-9), # Use large setup and hold times. This leads to shorter propagation time.
+                        CalcMode.WORST: (1e-9, 1e-9), # Use short setup and hold times. This leads to longer propagation times.
+                        CalcMode.TYPICAL: (1e-9, 1e-9),
+                    }
+                    
+                    (setup_time, hold_time) = settings[conf.timing_corner]
+                    
+                    clock_cycle_hint = clock_pulse_width_guess * 2 # Choose a big-enough clock pulse such that data is sampled for sure.
+        
+                    data_transition_time = 1e-13 # TODO
+                    
+                    delay, slew_time = measure_clock_to_output_delay(
+                        cell_conf,
+                        data_in_pin,
+                        data_out_pin_name,
+                        clock_pin,
+                        clock_edge_polarity,
+                        data_edge_polarity,
+                        output_load_capacitances,
+                        clock_transition_time,
+                        data_transition_time,
+                        setup_time,
+                        hold_time,
+                        clock_cycle_hint,
+                        static_input_voltages
+                    )
+                    print(f"delay = {delay}")
+        
+        #timing_group = Group(
+        #    'timing',
+        #    attributes={
+        #        'timing_type': [f'rising_edge'],
+        #        'related_pin': [EscapedString(related_pin)]
+        #    },
+        #    groups=[cell_rise, cell_fall]
+        #)
+
+def find_flipflop_state_control_and_observe_pins(
+    cell_type: SingleEdgeDFF,
+    other_inputs: Dict[sympy.Symbol, sympy.Symbol]
+) -> List[Tuple[str, Dict[str, bool]]]:
+    """
+    Find data input pins which control the state of the flip-flop.
+
+
+    Returns a list of pins which can control the flip-flop state together with 
+    1) an assignment of other input values (clear, preset, ...) such that the input pin becomes controlling
+    2) a list of output pins which allow to observe the internal state with the given other input values
+    """
+
+    assert isinstance(cell_type, SingleEdgeDFF), "cell_type must be a SingleEdgeDFF"
+    
+    # Find all data pins that are relevant for the internal state of the flip-flop.
+    data_in_pins = sorted(cell_type.next_state.atoms(sympy.Symbol))
+    logger.debug(f"Input pins relevant for internal state: {data_in_pins}")
+
+    # Find data input pins which can control the output pin.
+    controlling_input_pins = []
+    for data_in_pin in data_in_pins:
+    
+        # Find all assignments of the other data pins such that the data pin controls
+        # the internal state.
+        # Find values of the other pins such that:
+        #  next_state(data_in_pin=0, other_pins) != next_state(data_in_pin=1, other_pins)
+        next_state_0 = cell_type.next_state.subs({data_in_pin: False})
+        next_state_1 = cell_type.next_state.subs({data_in_pin: True})
+        models = list(satisfiable(next_state_0 ^ next_state_1, all_models=True))
+
+        for other_pin_values in models:
+            # Express the assignment of the other pins as a boolean formula.
+            # This will also be used as a 'when' statement in the liberty file.
+            when_other_inputs = sympy.And(*(pin if value else ~pin for pin, value in other_pin_values.items()))
+            logger.info(f"Measure clock-to-output delay with data input {data_in_pin} when {when_other_inputs}.")
+
+            # Set static voltages of other input pins.
+            other_pin_values.update(other_inputs)
+            
+            logger.debug(f"Pin {data_in_pin} controls the flip-flop state when: {other_pin_values}")
+            
+
+            static_input_voltages = dict()
+            for pin, value in other_pin_values.items():
+                if not isinstance(pin, sympy.Symbol):
+                    continue
+                value = value == True
+                pin = str(pin)
+                logger.debug(f"{pin} = {value} V")
+                static_input_voltages[pin] = value
+                
+            # Find an output pin such that the internal state is observable.
+            observer_outputs = []  # Output pins that can observe the internal memory state.
+            for output_pin, output in cell_type.outputs.items():
+                function = output.function
+                # Substitute with constant input pins.
+                function = function.subs(other_pin_values)
+
+                # Compute the output for all values of the internal state and make sure it is different.
+                function0 = function.subs({cell_type.internal_state: False})
+                function1 = function.subs({cell_type.internal_state: True})
+                is_observable = not satisfiable(~(function0 ^ function1))  # Test if function0 != function1
+
+                logger.debug(f"Internal state {cell_type.internal_state} observable from output {output_pin} "
+                             f"when {other_pin_values}: {is_observable}")
+
+                if is_observable:
+                    observer_outputs.append(output_pin)
+
+            logger.debug(f"Internal state is observable from: {observer_outputs}")
+
+            # Remember the pin which controls the internal state and the the required
+            # voltages at the other pins.
+            controlling_input_pins.append((str(data_in_pin), static_input_voltages, observer_outputs))
+
+    return controlling_input_pins
+
+
