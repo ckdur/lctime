@@ -60,38 +60,6 @@ class LctimeSpiceReaderDelegate(db.NetlistSpiceReaderDelegate):
         else:
             return db.NetlistSpiceReaderDelegate.parse_element(self, element_specification, element)
 
-    def element(self, circuit: db.Circuit, el: str, name: str, model: str, value, nets: List[db.Net],
-                params: Dict[str, float]):
-        """
-        Process a SPICE element. All elements except 4-terminal MOS transistors are left unchanged.
-        :return: True iff the device has not been ignored and put into the netlist.
-        """
-
-        if el != 'M' or len(nets) != 4:
-            # All other elements are left to the standard implementation.
-            return super().element(circuit, el, name, model, value, nets, params)
-        else:
-            # Provide a device class.
-            cls = circuit.netlist().device_class_by_name(model)
-            if not cls:
-                # Create MOS3Transistor device class if it does not yet exist.
-                cls = db.DeviceClassMOS3Transistor()
-                cls.name = model
-                circuit.netlist().add(cls)
-
-            # Create MOS3 device.
-            device: db.Device = circuit.create_device(cls, name)
-            # Configure the MOS3 device.
-            for terminal_name, net in zip(['S', 'G', 'D'], nets):
-                device.connect_terminal(terminal_name, net)
-
-            # Parameters in the model are given in micrometer units, so
-            # we need to translate the parameter values from SI to um values.
-            device.set_parameter('W', params.get('W', 0) * 1e6)
-            device.set_parameter('L', params.get('L', 0) * 1e6)
-
-            return True
-
         
 def load_netlist(path: str) -> db.Netlist:
     """
