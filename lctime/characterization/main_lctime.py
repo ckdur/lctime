@@ -329,7 +329,7 @@ def main():
     # Find definitions of operating conditions and sort them by name.
     operating_conditions_list = library.get_groups('operating_conditions')
     # Put into a dict by name.
-    operating_conditions: Dict[str, Group] = {g.args[0]: g for g in operating_conditions_list}
+    operating_conditions: Dict[str, Group] = {str(g.args[0]): g for g in operating_conditions_list}
 
     logger.info("Operating conditions: {}".format(set(operating_conditions.keys())))
 
