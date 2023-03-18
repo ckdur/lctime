@@ -41,11 +41,23 @@ class LctimeSpiceReaderDelegate(db.NetlistSpiceReaderDelegate):
 
         if element.upper() == "M":
             # Parse mosfet and ignore parameters.
-            args = element_specification.split() # Split on whitespace.
+            tokens = element_specification.split() # Split on whitespace.
 
-            # Strip parameters
+            # Merge 'parameter = value' pairs into single strings.
+            args = []
+            i = 0
+            while i < len(tokens):
+                if tokens[i] == "=":
+                    args[-1] = args[-1] + "=" + tokens[i+1]
+                    i += 2
+                else:
+                    args.append(tokens[i])
+                    i += 1
+
+
+            # Strip away 'parameter=value' pairs.
             args = [arg for arg in args if not "=" in arg]
-            
+
             if len(args) not in [4, 5]:
                 raise Exception("Mosfet is required to have 3 or 4 nets and a model.")
             
