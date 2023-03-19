@@ -11,7 +11,7 @@ import numpy as np
 from scipy import interpolate, optimize
 from enum import Enum
 from collections import namedtuple
-from liberty.types import Group
+from liberty.types import *
 import logging
 from typing import Dict, Iterable, Optional, List
 import re
@@ -179,6 +179,9 @@ class CharacterizationConfig:
         assert time_unit_str.endswith('s'), "Time unit string must end on 's' for seconds."
         assert isinstance(time_unit_str, str)
         cap_unit_factor, cap_unit_str = library['capacitive_load_unit']
+        if isinstance(cap_unit_str,EscapedString):
+            cap_unit_str=cap_unit_str.value
+        #print("cap_unit_str: "+cap_unit_str)
         assert cap_unit_str.endswith('f'), "Capacitance unit string must end on 'f' for Farads."
         assert isinstance(cap_unit_str, str)
         assert isinstance(cap_unit_factor, float)
