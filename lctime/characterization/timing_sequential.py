@@ -533,6 +533,7 @@ def get_clock_to_output_delay(
         clock_rise_time: float,
         clock_fall_time: float,
         clock_cycle_hint: float,
+        enable_pre_measurement_clock_cycle: bool = True,
         output_load_capacitances: Dict[str, float] = None,
         setup_statements: List[str] = None,
         input_voltages: Dict[str, float] = None,
@@ -553,6 +554,9 @@ def get_clock_to_output_delay(
     :param input_fall_time: Fall time of the input signal (clock and data).
     :param output_load_capacitances: A dict with (net, capacitance) pairs which defines the load capacitances attached to certain nets.
     :param clock_cycle_hint: Run the simulation for at least this amount of time.
+    :param enable_pre_measurement_clock_cycle: Apply a clock cycle before applying the clock edge.
+        Used to initialize the internal state of a flip-flop.
+        Set this to `False` for latches.
     :param setup_statements: SPICE statements that are included at the beginning of the simulation.
         This should be used for .INCLUDE and .LIB statements.
     :param include_slew: If set to True return a tuple of (delay time, slew time).
@@ -583,18 +587,22 @@ def get_clock_to_output_delay(
     period = max(clock_cycle_hint, input_rise_time + input_fall_time, clock_rise_time + clock_fall_time)
 
     # Generate the wave form of the clock.
-    # First a clock pulse makes sure that the right state is sampled into the cell.
-    clock_pulse1 = PulseWave(
-        start_time=period,
-        duration=period,
-        polarity=rising_clock_edge,
-        rise_time=clock_rise_time,
-        fall_time=clock_fall_time,
-        rise_threshold=trip_points.input_threshold_rise,
-        fall_threshold=trip_points.input_threshold_fall
-    )
+    if enable_pre_measurement_clock_cycle:
+        # First a clock pulse makes sure that the right state is sampled into the cell.
+        clock_pulse1 = PulseWave(
+            start_time=period,
+            duration=period,
+            polarity=rising_clock_edge,
+            rise_time=clock_rise_time,
+            fall_time=clock_fall_time,
+            rise_threshold=trip_points.input_threshold_rise,
+            fall_threshold=trip_points.input_threshold_fall
+        )
 
-    t_clock_edge = 4 * period + max(setup_time, 0)
+        t_clock_edge = 4 * period + max(setup_time, 0)
+    else:
+        clock_pulse1 = 0
+        t_clock_edge = period + max(setup_time, 0) # TODO: Choose time as tight as possible
 
     assert t_clock_edge > 0
 
@@ -1407,3 +1415,66 @@ def measure_flip_flop_setup_hold(
     result.minimum_delay_fall = min_fall_delay
 
     return result
+
+def measure_clock_to_output_delay(
+        cell_conf: CellConfig,
+        data_in_pin: str,
+        data_out_pin: str,
+        clock_pin: str,
+        clock_edge_polarity: bool,
+        data_edge_polarity: bool,
+        output_load_capacitances: Dict[str, float],
+        clock_transition_time: float,
+        data_transition_time: float,
+        setup_time: float,
+        hold_time: float,
+        clock_cycle_hint: float = 1e-9,
+        static_input_voltages: Dict[str, float] = None
+) -> (float, float):
+    """
+    Measure the delay and slew from the clock edge to the output data edge.
+    
+    Returns (delay, slew time)
+    """
+    assert isinstance(cell_conf, CellConfig)
+    cfg = cell_conf.global_conf
+
+    assert setup_time + hold_time >= 0, "sum of setup and hold time must be positive"
+    assert data_in_pin != data_out_pin, f"data input ({data_in_pin}) and output pin ({data_out_pin}) must be different"
+    
+    # TODO: find appropriate simulation_duration_hint
+    logger.debug(f"simulation_duration_hint = {clock_cycle_hint}")
+
+    clock_rise_time = clock_transition_time
+    clock_fall_time = clock_transition_time
+
+    data_rise_time = data_transition_time
+    data_fall_time = data_transition_time
+
+    logger.debug(f"Output load capacitance: {output_load_capacitances} [F]")
+
+    # SPICE include files.
+    includes = [f".INCLUDE {cell_conf.spice_netlist_file}"]
+    includes += cfg.setup_statements
+
+    vdd = cfg.supply_voltage
+    
+    return get_clock_to_output_delay(
+        cell_conf=cell_conf,
+        clock_input=clock_pin,
+        data_in=data_in_pin,
+        data_out=data_out_pin,
+        setup_time=setup_time,
+        hold_time=hold_time,
+        rising_clock_edge=clock_edge_polarity,
+        rising_data_edge=data_edge_polarity,
+        input_rise_time=data_rise_time,
+        input_fall_time=data_fall_time,
+        clock_rise_time=clock_rise_time,
+        clock_fall_time=clock_fall_time,
+        output_load_capacitances=output_load_capacitances,
+        clock_cycle_hint=clock_cycle_hint,
+        setup_statements=includes,
+        input_voltages=static_input_voltages,
+        include_slew=True,
+    )

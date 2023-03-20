@@ -33,7 +33,8 @@ def characterize_comb_cell(
 
         cell_conf: CellConfig,
 
-        constant_inputs: Dict[str, bool] = dict()
+        constant_inputs: Dict[str, bool] = dict(),
+        initial_node_voltages: Dict[str, float] = None,
 
 ) -> Dict[str, np.ndarray]:
     """
@@ -46,6 +47,7 @@ def characterize_comb_cell(
     :param output_pin: The output pin of the timing arc.
     :param related_pin: The input pin of the timing arc.
     :param output_functions: A dict mapping output pin names to corresponding boolean functions.
+    :param initial_conditions: Initial node voltages as a dict.
 
     :return: Returns the NDLM timing tables wrapped in a dict:
     {'cell_rise': 2d-np.ndarray, 'cell_fall': 2d-np.ndarray, ... }
@@ -77,12 +79,17 @@ def characterize_comb_cell(
         CalcMode.BEST: min,
         CalcMode.TYPICAL: np.mean
     }[cfg.timing_corner]
+    
+    # Initial node voltages.
+    if initial_node_voltages is None:
+        initial_node_voltages = dict()
+    else:
+        initial_node_voltages = initial_node_voltages.copy()
 
     # Create a list of include files.
     setup_statements = cfg.setup_statements + [f".include {cell_conf.spice_netlist_file}"]
 
     # Get all input nets that are not toggled during a simulation run.
-    logger.debug("Get all input nets that are not toggled during a simulation run.")
     static_input_nets = [i for i in input_pins_non_inverted if i != related_pin]
     # Get a list of all input combinations that will be used for measuring conditional timing arcs.
     num_inputs = len(static_input_nets)
@@ -197,17 +204,15 @@ def characterize_comb_cell(
                     breakpoint_statement = f"stop when v({output_pin}) < {vdd * 0.01}"
                 breakpoint_statements = [breakpoint_statement]
 
-                # Initial node voltages.
-                initial_conditions = {
-                    output_pin: initial_output_voltage
-                }
+                initial_node_voltages[output_pin] = initial_output_voltage
+                
                 simulation_title = f"Timing simulation for pin '{related_pin}', input_rising={input_rising}."
 
                 time, voltages, currents = simulate_cell(
                     cell_name=cell_conf.cell_name,
                     cell_ports=ports,
                     input_voltages=input_voltages,
-                    initial_voltages=initial_conditions,
+                    initial_voltages=initial_node_voltages,
                     breakpoint_statements=breakpoint_statements,
                     output_voltages=[related_pin, output_pin],
                     output_currents=[cell_conf.supply_net],
