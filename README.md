@@ -135,3 +135,8 @@ sp2bool --spice ~/FreePDK45/osu_soc/lib/files/cells.sp --cell DFFSR
 ```
 
 For cells with *differential* inputs the `--diff` argument must be used to specify differential pairs.
+
+
+## Debugging
+
+Enable very verbose trace log: set the `DEBUG_LCTIME` environment variable to `yes`
