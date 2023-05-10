@@ -46,7 +46,7 @@ setup(name='lctime',
           'matplotlib==3.*',
           'networkx>=2.5',  # BSD
           'pyspice==1.4.*',  # GPLv3
-          'scipy>=1.5.*',  # BSD
+          'scipy>=1.5.0',  # BSD
           'liberty-parser>=0.0.15',  # GPLv3
           'joblib>=0.14', # BSD-3-Clause
       ],
