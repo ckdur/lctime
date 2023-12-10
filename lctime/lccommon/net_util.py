@@ -32,6 +32,31 @@ class LctimeSpiceReaderDelegate(db.NetlistSpiceReaderDelegate):
     """
     """
 
+    def __init__(self):
+        self.netlist = None
+
+    def start(self, netlist: db.Netlist):
+        self.netlist = netlist
+
+    #def control_statement(self, stmt: str):
+    #    """
+    #    Process unsupported control statements such as `.lib`.
+    #    """
+    #    splitted = stmt.split(maxsplit = 2)
+
+    #    if len(splitted) != 2:
+    #        return False
+
+    #    cmd, args = splitted
+
+    #    if cmd.lower() == ".lib":
+    #        print("Convert `.lib` into `.include`")
+    #        pass
+    #    else:
+    #        
+    #        logger.warning(f"Control statement ignored: `{stmt}`")
+    #        return False
+
     def parse_element(self, element_specification: str, element: str) -> db.ParseElementData:
         """
         Parse an element card.
