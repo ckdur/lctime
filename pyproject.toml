@@ -51,7 +51,7 @@ sp2bool = "lctime.characterization.main_sp2bool:main"
 'Issue Tracker' = 'https://codeberg.org/librecell/lctime/issues'
 
 [tool.setuptools.packages.find]
-where = ["lctime"]
+where = ["src"]
 
 # Data files to be included
 [tool.setuptools.package-data]
