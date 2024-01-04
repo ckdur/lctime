@@ -9,7 +9,7 @@ from . import util
 
 import argparse
 from PySpice.Unit import *
-from lccommon import net_util
+from ..lccommon import net_util
 from ..lccommon.net_util import load_netlist, extract_transistors
 import networkx as nx
 
