@@ -4,7 +4,7 @@
 
 [project]
 name = "lctime"
-version = "0.0.21"
+version = "0.0.22"
 description='CMOS standard-cell characterization kit.'
 readme = {file = "README.md", content-type="text/markdown"}
 license = {text = "AGPL-3.0-or-later"}
@@ -34,7 +34,7 @@ dependencies = [
   'networkx>=2.5',  # BSD
   'pyspice>=1.4',  # GPLv3
   'scipy>=1.5',  # BSD
-  'liberty-parser>=0.0.21',  # GPLv3
+  'liberty-parser>=0.0.23',  # GPLv3
   'joblib>=0.14', # BSD-3-Clause
 ]
 
