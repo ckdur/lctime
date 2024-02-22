@@ -44,14 +44,18 @@ import logging
 from ..licence import licence_notice_string_single_line, original_source_repository
 
 
-def _boolean_to_lambda(boolean: boolalg.Boolean):
+def _boolean_to_lambda(boolean: boolalg.Boolean, input_pins: List):
     """
     Convert a sympy.boolalg.Boolean expression into a Python lambda function.
-    :param boolean:
+    :param boolean: Boolean function
+    :param input_pins: Ordered list of input pins. Used to keep ordering of arguments consistent between lambda function and original cell function.
     :return:
     """
     simple = sympy.simplify(boolean)
-    f = sympy.lambdify(boolean.atoms(), simple)
+    atoms = boolean.atoms()
+    input_pins = [sympy.Symbol(i) for i in input_pins]
+    inputs = [i for i in input_pins if i in atoms]
+    f = sympy.lambdify(inputs, simple)
     return f
 
 
@@ -1009,7 +1013,7 @@ def characterize_combinational_output(
 
             # Convert deduced output functions into Python lambda functions.
             output_functions = {
-                str(name): _boolean_to_lambda(comb_output.function)
+                str(name): _boolean_to_lambda(comb_output.function, input_pins)
                 for name, comb_output in cell_type.outputs.items()
             }
 
