@@ -71,7 +71,7 @@ def characterize_input_capacitances(
     setup_statements_string = "\n".join(setup_statements)
 
     # Add output load capacitance. Right now this is 0F.
-    output_load_statements = "\n".join((f"Cload_{p} {p} GND 0" for p in output_pins))
+    output_load_statements = "\n".join((f"Cload_{p} {p} {cell_conf.ground_net} 0" for p in output_pins))
 
     # Choose a maximum time to run the simulation.
     time_max = cfg.time_step * 1e6
@@ -176,6 +176,7 @@ Xcircuit_under_test {" ".join(ports)} {cell_conf.cell_name}
 {output_load_statements}
 
 Vsupply {cell_conf.supply_net} {cell_conf.ground_net} {cfg.supply_voltage}
+Vgnd {cell_conf.ground_net} 0 0
 
 * Input current sources.
 {input_current_source_statements}

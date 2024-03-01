@@ -198,6 +198,7 @@ Xcircuit_under_test {" ".join(cell_ports)} {cell_name}
 
 * Static input and supply voltages.
 {static_signal_source_statements}
+Vgnd {ground_net} 0 0
 
 * Active input signals (clock & data_in).
 {active_signal_source_statements}
@@ -611,6 +612,7 @@ Xcircuit_under_test {" ".join(cell_ports)} {cell_name}
 
 * Static input and supply voltages.
 {static_signal_source_statements}
+Vgnd {ground_net} 0 0
 
 * Active input signals (clock & data_in).
 {active_signal_source_statements}
