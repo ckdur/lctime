@@ -355,9 +355,7 @@ def main():
             Each edge corresponds to a transistor, each node to a net.
         """
         G = nx.MultiGraph()
-        for t in transistors:
-            G.add_edge(t.source_net, t.drain_net, (t.gate_net, t.channel_type))
-        assert nx.is_connected(G)
+        # assert nx.is_connected(G)  # We do not need to check for this. Some stdcells are not fully connected
         return G
 
     # Get timing corner from liberty file.
@@ -613,16 +611,19 @@ def main():
                 output_pins.extend(maybe_outputs)
 
         # Sanity check.
+        non_logic = False
         if len(input_pins) == 0:
             msg = "Cell has no input pins."
-            logger.error(msg)
-            assert False, msg
+            logger.warn(msg)
+            non_logic = True
+            # assert False, msg  # We do not need ot fail at this stage. We simple do not run the logic characterization
 
         # Sanity check.
         if len(output_pins) == 0:
             msg = "Cell has no output pins."
-            logger.error(msg)
-            assert False, msg
+            logger.warn(msg)
+            non_logic = True
+            # assert False, msg  # We do not need ot fail at this stage. We simple do not run the logic characterization
 
         # Extract differential pairs from liberty.
         # Liberty allows to reference complementary pins with the 'complementary_pin' attribute.
@@ -663,7 +664,7 @@ def main():
         input_pins_non_inverted = [p for p in input_pins if p not in inverted_pins]
         "All input pins that are not inverted inputs of a differential pair"
 
-        if args.analyze_cell_function:
+        if args.analyze_cell_function and not non_logic:
             # Derive boolean functions for the outputs from the netlist.
             logger.info("Derive boolean functions for the outputs based on the netlist.")
 
@@ -718,7 +719,13 @@ def main():
             new_cell_group
         )
 
-        if isinstance(cell_type, Combinational):
+        if non_logic:
+            logger.info("Characterize nonlogic.")
+            logger.warn("Skip characterization.")
+            """
+            This is either a tieh/tiel, or a diode.
+            """
+        elif isinstance(cell_type, Combinational):
             characterize_combinational_output(
                 new_library,
                 new_cell_group,
@@ -972,7 +979,8 @@ def characterize_combinational_output(
         output_pin_group = new_cell_group.get_group('pin', output_pin_name)
 
         # Store boolean function of output to liberty.
-        output_pin_group.set_boolean_function('function', cell_type.outputs[output_pin_symbol].function)
+        if output_pin_group.get_boolean_function('function') is None:
+            output_pin_group.set_boolean_function('function', cell_type.outputs[output_pin_symbol].function)
 
         # Check if the output can be high-impedance.
         is_tristate = cell_type.outputs[output_pin_symbol].is_tristate()
@@ -1339,7 +1347,8 @@ def characterize_flip_flop_output(
         data_out_pin_name = str(data_out_pin)
     
         output_pin_group = new_cell_group.get_group('pin', data_out_pin_name)
-        output_pin_group.set_boolean_function('function', output_function)
+        if output_pin_group.get_boolean_function('function') is None:
+            output_pin_group.set_boolean_function('function', output_function)
         related_pin = clock_pin
         
         # Find data input pins which can control the output pin.
