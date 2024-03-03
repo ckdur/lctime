@@ -1099,10 +1099,12 @@ def characterize_flip_flop_output(
         abort("Need to specify 'related-pin-transition' for the clock pin.")
 
     # Create or update the 'ff' group.
-    ff_group = new_cell_group.get_groups('ff')
-    if not ff_group:
+    ff_groups = new_cell_group.get_groups('ff')
+    if not ff_groups:
         ff_group = Group('ff')
         new_cell_group.groups.append(ff_group)
+    else:
+        ff_group = ff_groups[0]
 
     # Store content of 'ff' group.
     ff_group.args = [str(cell_type.internal_state), str(cell_type.internal_state) + "_INV"]
