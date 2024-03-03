@@ -627,7 +627,7 @@ def get_clock_to_output_delay(
         # Compensate for offset.
         clk_wave -= 1
 
-    simulation_end = t_clock_edge + 4 * period
+    simulation_end = t_clock_edge + 1e-7 # 16 * period
 
     # Create data pulse.
     logger.debug("Create data pulse.")

@@ -1108,11 +1108,13 @@ def characterize_flip_flop_output(
 
     # Store content of 'ff' group.
     ff_group.args = [str(cell_type.internal_state), str(cell_type.internal_state) + "_INV"]
-    ff_group.set_boolean_function('clocked_on', cell_type.clocked_on)
-    ff_group.set_boolean_function('next_state', cell_type.next_state)
-    if cell_type.async_preset:
+    if ff_group.get_boolean_function('clocked_on') is None:
+        ff_group.set_boolean_function('clocked_on', cell_type.clocked_on)
+    if ff_group.get_boolean_function('next_state') is None:
+        ff_group.set_boolean_function('next_state', cell_type.next_state)
+    if cell_type.async_preset and ff_group.get_boolean_function('preset') is None:
         ff_group.set_boolean_function('preset', cell_type.async_preset)
-    if cell_type.async_clear:
+    if cell_type.async_clear and ff_group.get_boolean_function('clear') is None:
         ff_group.set_boolean_function('clear', cell_type.async_clear)
 
     # Find clock pin.
