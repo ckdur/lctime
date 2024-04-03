@@ -216,8 +216,8 @@ set wr_vecnames
 * Breakpoints
 {breakpoint_statements}
 
-* Transient simulation, use initial conditions.
-tran {time_step} {max_simulation_time} uic
+* Transient simulation.
+tran {time_step} {max_simulation_time}
 * Write selected signals to the output file.
 wrdata {simulation_output_file} {output_voltage_defs} {output_current_defs} 
 * Exit ngspice.
@@ -629,8 +629,8 @@ set wr_vecnames
 * Breakpoints
 {breakpoint_statements}
 
-* Transient simulation, use initial conditions.
-* tran {time_step} {max_simulation_time} uic
+* Transient simulation.
+* tran {time_step} {max_simulation_time}
 * Write selected signals to the output file.
 * wrdata {simulation_output_file} {output_voltage_defs} {output_current_defs} 
 * Exit ngspice.
@@ -655,7 +655,7 @@ set wr_vecnames
 
     # ns.source(simulation_file)
     ns.load_circuit(sim_netlist)
-    nrows = ns.tran(t_step=time_step, t_stop=max_simulation_time, uic='uic')
+    nrows = ns.tran(t_step=time_step, t_stop=max_simulation_time)
     measure_currents_at = [f'v{c}' for c in output_currents]
     sim_data = ns.get_data(num_rows=nrows, voltages=output_voltages, currents=measure_currents_at)
     ns.cmd('quit')

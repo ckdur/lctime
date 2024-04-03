@@ -196,7 +196,7 @@ set wr_vecnames
 {breakpoint_statement}
 
 * Transient simulation, use initial conditions.
-tran {cfg.time_step} {time_max} uic
+tran {cfg.time_step} {time_max}
 wrdata {sim_output_file} v({active_pin}) {" ".join((f"v({p})" for p in output_pins))}
 exit
 .endc
