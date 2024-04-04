@@ -138,5 +138,7 @@ For cells with *differential* inputs the `--diff` argument must be used to speci
 
 
 ## Debugging
-
-Enable very verbose trace log: set the `DEBUG_LCTIME` environment variable to `yes`
+Options for increasing debugging information:
+* `--debug`: increase verbosity. Will also show the path to generated SPICE files.
+* `--debug-plots` plot the waveforms of all simulations to a file. Slow but sometimes useful.
+* Enable very verbose trace log: set the `DEBUG_LCTIME` environment variable to `yes`
