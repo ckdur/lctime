@@ -791,6 +791,9 @@ def analyze_boolean_functions(
         vdd_pin: str,
         gnd_pin: str,
 ) -> CellType:
+    assert isinstance(cell_group, Group)
+    assert cell_group.group_name == 'cell', "not a cell group"
+
     abstracted_circuit = functional_abstraction.analyze_circuit_graph(
         graph=transistor_graph,
         pins_of_interest=io_pins,
