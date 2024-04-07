@@ -166,6 +166,10 @@ class CharacterizationConfig:
         """
         Capacitance unit used in the liberty file.
         """
+        self.energy_unit: float = 1e-12 # [pJ]
+        """
+        Energy unit used in the liberty file.
+        """
 
     def get_units_from_liberty(self, library: Group):
         """

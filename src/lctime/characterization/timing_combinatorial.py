@@ -215,7 +215,7 @@ def characterize_comb_cell(
                     initial_voltages=initial_node_voltages,
                     breakpoint_statements=breakpoint_statements,
                     output_voltages=[related_pin, output_pin],
-                    output_currents=[cell_conf.supply_net],
+                    output_currents=[cell_conf.supply_net, related_pin],
                     simulation_file=sim_file,
                     simulation_output_file=sim_output_file,
                     max_simulation_time=time_max,
@@ -229,7 +229,9 @@ def characterize_comb_cell(
                 )
 
                 # Retrieve data.
-                supply_current = currents[cell_conf.supply_net]
+                supply_current = - currents[cell_conf.supply_net]
+                gate_current = - currents[related_pin]
+                
                 input_voltage = voltages[related_pin]
                 output_voltage = voltages[output_pin]
 
@@ -249,9 +251,16 @@ def characterize_comb_cell(
 
                 # TODO: What unit does rise_power/fall_power have in liberty files???
                 # Is it really power or energy?
-                switching_power = np.mean(supply_current * vdd)
-                switching_energy = switching_power * (time[-1] - time[0])
+                dt = time[-1] - time[0]
+                assert dt > 0.
+                gate_energy = np.mean(gate_current * input_voltage) * dt
+                supply_energy = np.mean(supply_current * vdd) * dt
+                logger.debug(f"switching energy (supply): {supply_energy}")
+                logger.debug(f"switching energy (gate): {gate_energy}")
+                assert supply_energy >= 0., "switching power consumption through power supply is negative"
 
+                switching_energy = gate_energy + supply_energy
+                
                 v_thresh = 0.5 * vdd
 
                 # Get input signal before switching and after.

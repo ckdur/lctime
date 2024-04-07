@@ -1078,6 +1078,37 @@ def characterize_combinational_output(
             # Attach timing group to output pin group.
             output_pin_group.groups.append(timing_group)
 
+            # Create template tables.
+            power_template_table = liberty_util.create_power_template_table(new_library, len(index_1), len(index_2))
+            power_table_template_name = power_template_table.args[0]
+            
+            # Create liberty power tables.
+            power_tables = []
+            for table_name in ['rise_power', 'fall_power']:
+                table = Group(
+                    table_name,
+                    args=[power_table_template_name],
+                )
+
+                table.set_array('index_1', index_1)
+                table.set_array('index_2', index_2)
+                table.set_array('values', result[table_name] / conf.energy_unit)
+
+                power_tables.append(table)
+
+            power_attributes = [
+                Attribute('related_pin', EscapedString(related_pin)),
+            ]
+            
+            internal_power_group = Group(
+                'internal_power',
+                attributes=power_attributes,
+                groups=power_tables
+            )
+            
+            # Attach group to output pin group.
+            output_pin_group.groups.append(internal_power_group)
+
 
 
 def characterize_flip_flop_output(
