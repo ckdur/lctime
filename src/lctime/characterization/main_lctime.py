@@ -257,6 +257,8 @@ def main():
     parser.add_argument('--debug-plots', action='store_true',
                         help='Create debug plots of simulation waveforms.')
 
+    parser.add_argument('-j', '--jobs', type=int, default=1, metavar="NUM_JOBS", help="number of threads for cell-level parallelism")
+
     # Parse arguments
     args = parser.parse_args()
 
@@ -758,11 +760,12 @@ def main():
         return new_cell_group
 
     # Characterize cells in parallel.
-    # new_cell_groups = joblib.Parallel(n_jobs=-1, prefer='threads') \
-    #     (joblib.delayed(characterize_cell)(cell_name) for cell_name in cell_names)
-
-    # Characterize cells sequentially.
-    new_cell_groups = [characterize_cell(cell_name) for cell_name in cell_names]
+    if args.jobs > 1:
+        new_cell_groups = joblib.Parallel(n_jobs=args.jobs, prefer='threads') \
+            (joblib.delayed(characterize_cell)(cell_name) for cell_name in cell_names)
+    else:
+        # Characterize cells sequentially.
+        new_cell_groups = [characterize_cell(cell_name) for cell_name in cell_names]
 
     for new_cell_group in new_cell_groups:
         new_library.groups.append(new_cell_group)
@@ -1043,15 +1046,15 @@ def characterize_combinational_output(
             index_2 = result['input_net_transition'] / conf.time_unit
 
             # Create template tables.
-            template_table = liberty_util.create_delay_template_table(new_library, len(index_1), len(index_2))
-            table_template_name = template_table.args[0]
+            delay_template_table = liberty_util.create_delay_template_table(new_library, len(index_1), len(index_2))
+            delay_table_template_name = delay_template_table.args[0]
 
             # Create liberty timing tables.
             timing_tables = []
             for table_name in ['cell_rise', 'cell_fall', 'rise_transition', 'fall_transition']:
                 table = Group(
                     table_name,
-                    args=[table_template_name],
+                    args=[delay_table_template_name],
                 )
 
                 table.set_array('index_1', index_1)
@@ -1074,6 +1077,7 @@ def characterize_combinational_output(
 
             # Attach timing group to output pin group.
             output_pin_group.groups.append(timing_group)
+
 
 
 def characterize_flip_flop_output(
