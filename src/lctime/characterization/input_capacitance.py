@@ -16,6 +16,7 @@ from .piece_wise_linear import *
 from .ngspice_subprocess import run_simulation
 from ..lccommon.net_util import get_subcircuit_ports
 import logging
+from typing import Dict
 
 from scipy import interpolate
 
@@ -27,7 +28,7 @@ def characterize_input_capacitances(
         active_pin: str,
         output_pins: List[str],
         cell_conf: CellConfig
-):
+) -> Dict[str, float]:
     """
     Estimate the input capacitance of the `active_pin`.
     The estimation is done by simulating a constant current flowing into an input and measuring the
@@ -40,6 +41,7 @@ def characterize_input_capacitances(
     :param output_pins: List of cell output pins.
     :param config: Parameters for the characterization.
 
+    :returns: Dictionary containing input capacitances for rise, fall and average case.
     """
 
     assert isinstance(cell_conf, CellConfig)
