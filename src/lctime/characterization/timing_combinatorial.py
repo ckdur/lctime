@@ -257,9 +257,9 @@ def characterize_comb_cell(
                 supply_energy = np.mean(supply_current * vdd) * dt
                 logger.debug(f"switching energy (supply): {supply_energy}")
                 logger.debug(f"switching energy (gate): {gate_energy}")
-                assert supply_energy >= 0., "switching power consumption through power supply is negative"
 
                 switching_energy = gate_energy + supply_energy
+                assert switching_energy >= 0., "switching power consumption through power supply is negative"
                 
                 v_thresh = 0.5 * vdd
 

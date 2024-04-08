@@ -113,7 +113,7 @@ import matplotlib.pyplot as plt
 #     plt.show()
 
 
-def test3():
+def _test3():
 
     netlist = r""".title Input capacitance measurement for pin "A"
 .include /home/kramert/unison/local/blackbird/git/librecell-examples/librecell_invx1_example/gpdk45nm.m
@@ -147,4 +147,4 @@ Isrc_A GND A 10000nA
 
     plt.plot(analysis.time, analysis['y'], 'x-')
     plt.plot(analysis.time, np.array(analysis['a']), 'x-')
-    plt.show()
+    # Disable for automatic tests: plt.show()

@@ -13,6 +13,8 @@ import threading, queue
 import time
 from typing import List
 
+from .ngspice_subprocess import NgSpiceInteractive
+
 
 def test_simple_simulation():
     """Run a simple transient simulation in a ngspice subprocess and retreive the results from a file."""
@@ -64,7 +66,7 @@ exit
 
     plt.plot(a_time, a, 'x-')
     plt.plot(y_time, y, 'x-')
-    plt.show()
+    # Disable for automatic tests: plt.show()
 
     os.remove(sim_output_file)
     os.remove(sim_file)
