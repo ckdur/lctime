@@ -557,6 +557,10 @@ class CellSetup:
         self.output_capacitances = None
         self.input_transition_times = None
         self.related_pin_transition = None
+        self.cell_group = None
+        self.cell_type_liberty = None
+        "Cell type as derived from liberty file."
+        self.cell_type = None
 
     def init_workdir(self):
         # Create working directory if it does not exist yet.
@@ -564,47 +568,53 @@ class CellSetup:
         if not os.path.exists(self.cell_workingdir):
             os.mkdir(self.cell_workingdir)
 
-    def run(self):
-        
-        self.init_workdir()
-
+    def init_indices(self):
         self.output_capacitances = self.lctime.output_capacitances
         self.input_transition_times = self.lctime.input_transition_times
         self.related_pin_transition = self.lctime.related_pin_transition
-        
-        # Get netlist and liberty group.
-        netlist_file = self.lctime.netlist_file_table[self.cell_name]
+
+    def recognize_cell_type(self):
         try:
-            cell_group = select_cell(self.lctime.library, self.cell_name)
+            self.cell_group = select_cell(self.lctime.library, self.cell_name)
 
             # Determine type of cell (latch, flip-flop, combinational).
-            cell_type_liberty = recognize_cell_from_liberty(cell_group)
-            cell_type = cell_type_liberty
+            self.cell_type_liberty = recognize_cell_from_liberty(self.cell_group)
+            self.cell_type = self.cell_type_liberty
         except KeyError as e:
             logger.warning(f"No cell group defined yet in liberty file: {self.cell_name}")
 
             if not self.lctime.args.analyze_cell_function:
                 abort("Cell is not defined in liberty. Enable cell recognition with --analyze.")
 
-            cell_type_liberty = Combinational()  # Default: Empty cell.
+            self.cell_type_liberty = Combinational()  # Default: Empty cell.
 
             # Cell group does not exist, so create it.
             logger.debug("Create empty cell group.")
-            cell_group = Group(group_name='cell', args=[self.cell_name])
-            self.lctime.library.groups.append(cell_group)
+            self.cell_group = Group(group_name='cell', args=[self.cell_name])
+            self.lctime.library.groups.append(self.cell_group)
 
             # The liberty did not define anything about this cell.
-            cell_type = None
+            self.cell_type = None
 
         # Check that the name matches.
-        assert cell_group.args == [self.cell_name], "Cell name does not match."  # This should not happen.
-
+        assert self.cell_group.args == [self.cell_name], "Cell name does not match."  # This should not happen.
+        
+    def run(self):
+        
         logger.info("Cell: {}".format(self.cell_name))
+
+        self.init_workdir()
+        self.init_indices()
+        self.recognize_cell_type()
+
+        
+        # Get netlist and liberty group.
+        netlist_file = self.lctime.netlist_file_table[self.cell_name]
         logger.info("Netlist: {}".format(netlist_file))
 
         # Get information on pins from the liberty file.
-        input_pins = [str(s) for s in cell_type_liberty.inputs]
-        output_pins = [str(s) for s in cell_type_liberty.outputs.keys()]
+        input_pins = [str(s) for s in self.cell_type_liberty.inputs]
+        output_pins = [str(s) for s in self.cell_type_liberty.outputs.keys()]
 
         liberty_pins = set(input_pins) | set(output_pins)
         # Convert to strings.
@@ -624,7 +634,7 @@ class CellSetup:
             return case_lookup_table.get(pin.lower(), pin)
 
         logger.info(f"Input pins as defined in liberty: {input_pins}")
-        logger.info(f"Output pins as defined in liberty: {sorted(cell_type_liberty.outputs.keys())}")
+        logger.info(f"Output pins as defined in liberty: {sorted(self.cell_type_liberty.outputs.keys())}")
 
         # Load netlist of cell
         # TODO: Load all netlists at the beginning.
@@ -662,7 +672,7 @@ class CellSetup:
 
         # Sanity check: All pins defined in liberty must appear in the SPICE netlist.
         all_liberty_pins = set()
-        for pin in cell_group.get_groups("pin"):
+        for pin in self.cell_group.get_groups("pin"):
             assert isinstance(pin, liberty_parser.Group)
             pin_name = pin.args[0]
             all_liberty_pins.add(pin_name)
@@ -725,7 +735,7 @@ class CellSetup:
         # Liberty allows to reference complementary pins with the 'complementary_pin' attribute.
         logger.debug("Load complementary pins from liberty.")
         differential_inputs_liberty = dict()
-        for pin in cell_group.get_groups("pin"):
+        for pin in self.cell_group.get_groups("pin"):
             assert isinstance(pin, liberty_parser.Group)
             pin_name = pin.args[0]
             complementary_pin = pin.get("complementary_pin")
@@ -745,7 +755,7 @@ class CellSetup:
 
         # Sanity checks on complementary pins.
         # Complementary pin should not be defined as pin group in liberty file.
-        for pin in cell_group.get_groups("pin"):
+        for pin in self.cell_group.get_groups("pin"):
             assert isinstance(pin, liberty_parser.Group)
             pin_name = pin.args[0]
             if pin_name in differential_inputs.values():
@@ -764,9 +774,9 @@ class CellSetup:
             # Derive boolean functions for the outputs from the netlist.
             logger.info("Derive boolean functions for the outputs based on the netlist.")
 
-            cell_type = analyze_boolean_functions(
-                cell_type,
-                cell_group,
+            self.cell_type = analyze_boolean_functions(
+                self.cell_type,
+                self.cell_group,
                 transistor_graph,
                 io_pins,
                 differential_inputs,
@@ -774,7 +784,7 @@ class CellSetup:
                 gnd_pin,
             )
 
-            merge_cell_types(cell_type_liberty, cell_type)
+            merge_cell_types(self.cell_type_liberty, self.cell_type)
         else:
             # Skip functional abstraction and take the functions provided in the liberty file.
             # output_functions_symbolic = output_functions_user
@@ -799,7 +809,7 @@ class CellSetup:
         # Populate the cell group with missing pin groups.
         create_missing_pin_groups(
             new_cell_group,
-            cell_type,
+            self.cell_type,
             cell_conf,
             output_pins,
             input_pins_non_inverted
@@ -815,30 +825,30 @@ class CellSetup:
             new_cell_group
         )
 
-        if isinstance(cell_type, Combinational):
+        if isinstance(self.cell_type, Combinational):
             characterize_combinational_output(
                 self.lctime.new_library,
                 new_cell_group,
                 self.lctime.conf,
-                cell_type,
+                self.cell_type,
                 cell_conf,
                 input_pins,
                 input_pins_non_inverted,
                 self.output_capacitances,
                 self.input_transition_times
             )
-        elif isinstance(cell_type, SingleEdgeDFF):
+        elif isinstance(self.cell_type, SingleEdgeDFF):
             flipflop.characterize_flip_flop_output(
                 self.lctime.new_library,
                 new_cell_group,
                 self.lctime.conf,
-                cell_type,
+                self.cell_type,
                 cell_conf,
                 self.related_pin_transition,
                 self.input_transition_times,
                 output_capacitances=self.output_capacitances
             )
-        elif isinstance(cell_type, Latch):
+        elif isinstance(self.cell_type, Latch):
             logger.info("Characterize latch.")
             logger.error("Characterization of latches is not yet supported.")
 
@@ -849,14 +859,14 @@ class CellSetup:
 
             assert False, "Characterization of latches is not yet supported."
         else:
-            assert False, f"Unsupported cell type: {type(cell_type)}"
+            assert False, f"Unsupported cell type: {type(self.cell_type)}"
 
         assert isinstance(new_cell_group, Group)
         return new_cell_group
 
 
 def analyze_boolean_functions(
-        cell_type: CellType,
+        cell_type: Optional[CellType],
         cell_group: Group,
         transistor_graph: nx.MultiGraph,
         io_pins: Set,
@@ -866,6 +876,7 @@ def analyze_boolean_functions(
 ) -> CellType:
     assert isinstance(cell_group, Group)
     assert cell_group.group_name == 'cell', "not a cell group"
+    assert cell_type is None or isinstance(cell_type, CellType)
 
     abstracted_circuit = functional_abstraction.analyze_circuit_graph(
         graph=transistor_graph,
