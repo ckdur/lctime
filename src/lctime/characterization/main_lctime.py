@@ -24,11 +24,11 @@ from ..logic import functional_abstraction
 from ..logic import seq_recognition
 from ..logic.types import CombinationalOutput
 
-from .util import *
 from .timing_combinatorial import characterize_comb_cell
 from .timing_sequential import *
 from .input_capacitance import characterize_input_capacitances
 from . import flipflop
+from . import util
 
 from copy import deepcopy
 
@@ -370,7 +370,7 @@ def main():
     logger.info("calc_mode: {}".format(calc_mode.name))
 
     # Read trip points from liberty file.
-    trip_points = read_trip_points_from_liberty(library)
+    trip_points = util.read_trip_points_from_liberty(library)
 
     logger.debug(trip_points)
 
