@@ -478,7 +478,7 @@ class LcTime:
         logger.info(f"Output capacitances [pF]: {self.output_capacitances / 1e-12}")
         logger.info(f"Input slew times [ns]: {self.input_transition_times / 1e-9}")
         if self.related_pin_transition is not None:
-            logger.info(f"Related pin transition times [ns]: {related_pin_transition / 1e-9}")
+            logger.info(f"Related pin transition times [ns]: {self.related_pin_transition / 1e-9}")
 
     def run(self):
         logger = logging.getLogger(__name__)
