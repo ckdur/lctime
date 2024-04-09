@@ -459,6 +459,27 @@ class LcTime:
 
         self.setup_statements = library_statements + include_statements
         
+    def f11_init_table_indices(self):
+        """
+        Load values for input transition times and output loads.
+        """
+        
+        # Setup array of output capacitances and input slews.
+        self.output_capacitances = np.array([float(s.strip()) for s in self.args.output_loads.split(",")]) * 1e-12  # pF
+        self.input_transition_times = np.array([float(s.strip()) for s in self.args.slew_times.split(",")]) * 1e-9  # ns
+
+        # Transition times of the clock pin.
+        if self.args.related_pin_transition:
+            self.related_pin_transition = np.array(
+                [float(s.strip()) for s in self.args.related_pin_transition.split(",")]) * 1e-9  # ns
+        else:
+            self.related_pin_transition = None
+
+        logger.info(f"Output capacitances [pF]: {self.output_capacitances / 1e-12}")
+        logger.info(f"Input slew times [ns]: {self.input_transition_times / 1e-9}")
+        if self.related_pin_transition is not None:
+            logger.info(f"Related pin transition times [ns]: {related_pin_transition / 1e-9}")
+
     def run(self):
         logger = logging.getLogger(__name__)
         logger.info("lctime main function")
@@ -474,343 +495,334 @@ class LcTime:
         self.f08_load_operating_conditions()
         self.f09_init_include_statements()
         self.f10_init_characterization_config()
+        self.f11_init_table_indices()
 
-        # Setup array of output capacitances and input slews.
-        output_capacitances = np.array([float(s.strip()) for s in self.args.output_loads.split(",")]) * 1e-12  # pF
-        input_transition_times = np.array([float(s.strip()) for s in self.args.slew_times.split(",")]) * 1e-9  # ns
-
-        # Transition times of the clock pin.
-        if self.args.related_pin_transition:
-            related_pin_transition = np.array(
-                [float(s.strip()) for s in self.args.related_pin_transition.split(",")]) * 1e-9  # ns
-        else:
-            related_pin_transition = None
-
-        logger.info(f"Output capacitances [pF]: {output_capacitances / 1e-12}")
-        logger.info(f"Input slew times [ns]: {input_transition_times / 1e-9}")
-        if related_pin_transition is not None:
-            logger.info(f"Related pin transition times [ns]: {related_pin_transition / 1e-9}")
-
-
-        # Characterize all cells in the list.
-        def characterize_cell(cell_name: str) -> Group:
-            """
-            Characterize a cell and create an updated cell group.
-            :param cell_name:
-            :return: Return an updated cell group.
-            """
-
-            # Create working directory if it does not exist yet.
-            cell_workingdir = os.path.join(self.conf.workingdir, cell_name)
-            if not os.path.exists(cell_workingdir):
-                os.mkdir(cell_workingdir)
-
-            # Get netlist and liberty group.
-            netlist_file = self.netlist_file_table[cell_name]
-            try:
-                cell_group = select_cell(self.library, cell_name)
-
-                # Determine type of cell (latch, flip-flop, combinational).
-                cell_type_liberty = recognize_cell_from_liberty(cell_group)
-                cell_type = cell_type_liberty
-            except KeyError as e:
-                logger.warning(f"No cell group defined yet in liberty file: {cell_name}")
-
-                if not self.args.analyze_cell_function:
-                    abort("Cell is not defined in liberty. Enable cell recognition with --analyze.")
-
-                cell_type_liberty = Combinational()  # Default: Empty cell.
-
-                # Cell group does not exist, so create it.
-                logger.debug("Create empty cell group.")
-                cell_group = Group(group_name='cell', args=[cell_name])
-                self.library.groups.append(cell_group)
-
-                # The liberty did not define anything about this cell.
-                cell_type = None
-
-            # Check that the name matches.
-            assert cell_group.args == [cell_name], "Cell name does not match."  # This should not happen.
-
-            logger.info("Cell: {}".format(cell_name))
-            logger.info("Netlist: {}".format(netlist_file))
-
-            # Get information on pins from the liberty file.
-            input_pins = [str(s) for s in cell_type_liberty.inputs]
-            output_pins = [str(s) for s in cell_type_liberty.outputs.keys()]
-
-            liberty_pins = set(input_pins) | set(output_pins)
-            # Convert to strings.
-            liberty_pins = {str(p) for p in liberty_pins}
-
-            # Create a lookup table to reconstruct lower/upper case letters.
-            # This is a workaround. The SPICE parser converts everything to uppercase.
-            case_lookup_table = {p.lower(): p for p in liberty_pins}
-            if len(case_lookup_table) != len(liberty_pins):
-                # It's not a one-to-one mapping!
-                logger.warning(f"Mixed lower case and upper case could cause trouble.")
-
-            def fix_case(pin: str) -> str:
-                """
-                Restore lower/upper case of signals that went lost during SPICE parsing.
-                """
-                return case_lookup_table.get(pin.lower(), pin)
-
-            logger.info(f"Input pins as defined in liberty: {input_pins}")
-            logger.info(f"Output pins as defined in liberty: {sorted(cell_type_liberty.outputs.keys())}")
-
-            # Load netlist of cell
-            # TODO: Load all netlists at the beginning.
-            logger.info('Load netlist: %s', netlist_file)
-            try:
-                transistors_abstract, cell_pins = load_transistor_netlist(netlist_file, cell_name)
-            except Exception as e:
-                abort(str(e))
-
-            if len(transistors_abstract) == 0:
-                msg = "No transistors found in cell. (The netlist must be flattened, sub-circuits are not resolved)"
-                abort(msg)
-
-            cell_pins = [fix_case(p) for p in cell_pins]
-            for t in transistors_abstract:
-                t.source_net = fix_case(t.source_net)
-                t.drain_net = fix_case(t.drain_net)
-                t.gate_net = fix_case(t.gate_net)
-
-            # Get pin ordering of spice circuit.
-            spice_ports = get_subcircuit_ports(netlist_file, cell_name)
-            logger.info(f"SPICE subcircuit ports: {spice_ports}")
-            io_pins = net_util.get_io_pins(cell_pins)
-
-            # Detect power pins.
-            # TODO: don't decide based only on net name.
-            power_pins = [p for p in cell_pins if net_util.is_power_net(p)]
-            assert len(power_pins) == 2, "Expected to have 2 power pins."
-            vdd_pins = [p for p in power_pins if net_util.is_supply_net(p)]
-            gnd_pins = [p for p in power_pins if net_util.is_ground_net(p)]
-            assert len(vdd_pins) == 1, "Expected to find one VDD pin but found: {}".format(vdd_pins)
-            assert len(gnd_pins) == 1, "Expected to find one GND pin but found: {}".format(gnd_pins)
-            vdd_pin = vdd_pins[0]
-            gnd_pin = gnd_pins[0]
-
-            # Sanity check: All pins defined in liberty must appear in the SPICE netlist.
-            all_liberty_pins = set()
-            for pin in cell_group.get_groups("pin"):
-                assert isinstance(pin, liberty_parser.Group)
-                pin_name = pin.args[0]
-                all_liberty_pins.add(pin_name)
-                complementary_pin = pin.get("complementary_pin")
-                if complementary_pin is not None:
-                    all_liberty_pins.add(complementary_pin)
-            all_spice_pins = set(cell_pins)
-            pins_not_in_spice = sorted(all_liberty_pins - all_spice_pins)
-
-            if pins_not_in_spice:
-                abort(f"Pins defined in liberty but not in SPICE netlist: {', '.join(pins_not_in_spice)}")
-
-            # Convert the transistor network into its multi-graph representation.
-            # This is used for a formal analysis of the network.
-            transistor_graph = _transistors2multigraph(transistors_abstract)
-
-            # Detect input nets from the transistor netlist (if enabled).
-            if self.args.analyze_cell_function:
-                logger.debug("Detect input nets from the circuit.")
-                detected_inputs = functional_abstraction.find_input_gates(transistor_graph)
-                # Detect nets that must be inputs (connected to gates only but do not
-                # appear in the list of pins in the SPICE circuit definition.
-                inputs_missing_in_spice = detected_inputs - all_spice_pins
-                if inputs_missing_in_spice:
-                    logger.warning(f"The circuit has gate nets that must be inputs "
-                                   f"but are not in the pin definition of the SPICE circuit: "
-                                   f"{', '.join(sorted(inputs_missing_in_spice))}")
-                # Same check for pins declared in liberty template.
-                inputs_missing_in_liberty = detected_inputs - all_liberty_pins
-                if inputs_missing_in_liberty:
-                    logger.warning(f"The circuit has gate nets that must be inputs "
-                                   f"but are not declared as a pin in the liberty template: "
-                                   f"{', '.join(sorted(inputs_missing_in_liberty))}")
-
-                # Add detected input pins.
-                diff = detected_inputs - set(input_pins)
-                if diff:
-                    logger.info(f"Also include detected pins: {', '.join(sorted(diff))}")
-                    input_pins.extend(diff)
-
-                # Find pins that are defined in the SPICE circuit but are not inputs nor power.
-                maybe_outputs = all_spice_pins - set(input_pins) - set(power_pins)
-                if maybe_outputs:
-                    logger.info(f"Potential output pins: {', '.join(sorted(maybe_outputs))}")
-                    output_pins.extend(maybe_outputs)
-
-            # Sanity check.
-            if len(input_pins) == 0:
-                msg = "Cell has no input pins."
-                logger.error(msg)
-                assert False, msg
-
-            # Sanity check.
-            if len(output_pins) == 0:
-                msg = "Cell has no output pins."
-                logger.error(msg)
-                assert False, msg
-
-            # Extract differential pairs from liberty.
-            # Liberty allows to reference complementary pins with the 'complementary_pin' attribute.
-            logger.debug("Load complementary pins from liberty.")
-            differential_inputs_liberty = dict()
-            for pin in cell_group.get_groups("pin"):
-                assert isinstance(pin, liberty_parser.Group)
-                pin_name = pin.args[0]
-                complementary_pin = pin.get("complementary_pin")
-                if complementary_pin is not None:
-                    differential_inputs_liberty[pin_name] = complementary_pin
-
-            # Match differential inputs.
-            if self.args.diff is not None:
-                logger.debug("Match complementary pins from user-defined pattern.")
-                differential_inputs_from_pattern = find_differential_inputs_by_pattern(self.args.diff, input_pins)
-            else:
-                differential_inputs_from_pattern = dict()
-
-            # Merge the differential pairs provided from the user with the pairs detected from the liberty file.
-            differential_inputs_liberty.update(differential_inputs_from_pattern)
-            differential_inputs = differential_inputs_liberty
-
-            # Sanity checks on complementary pins.
-            # Complementary pin should not be defined as pin group in liberty file.
-            for pin in cell_group.get_groups("pin"):
-                assert isinstance(pin, liberty_parser.Group)
-                pin_name = pin.args[0]
-                if pin_name in differential_inputs.values():
-                    logger.warning(
-                        f"Complementary pin is modelled in the liberty file but will not be characterized: {pin_name}")
-
-            for noninv, inv in differential_inputs.items():
-                logger.info(f"Differential input (+,-): {noninv}, {inv}")
-
-            # Find all input pins that are not inverted inputs of a differential pair.
-            inverted_pins = differential_inputs.values()
-            input_pins_non_inverted = [p for p in input_pins if p not in inverted_pins]
-            "All input pins that are not inverted inputs of a differential pair"
-
-            if self.args.analyze_cell_function:
-                # Derive boolean functions for the outputs from the netlist.
-                logger.info("Derive boolean functions for the outputs based on the netlist.")
-
-                cell_type = analyze_boolean_functions(
-                    cell_type,
-                    cell_group,
-                    transistor_graph,
-                    io_pins,
-                    differential_inputs,
-                    vdd_pin,
-                    gnd_pin,
-                )
-
-                merge_cell_types(cell_type_liberty, cell_type)
-            else:
-                # Skip functional abstraction and take the functions provided in the liberty file.
-                # output_functions_symbolic = output_functions_user
-                pass  # TODO
-
-            logger.info("Run characterization.")
-
-            # Setup cell specific configuration.
-            cell_conf = CellConfig()
-            cell_conf.cell_name = cell_name
-            cell_conf.global_conf = self.conf
-            cell_conf.complementary_pins = differential_inputs
-            cell_conf.ground_net = gnd_pin
-            cell_conf.supply_net = vdd_pin
-            cell_conf.workingdir = cell_workingdir
-            cell_conf.spice_netlist_file = self.netlist_file_table[cell_name]
-            cell_conf.spice_ports = spice_ports
-
-            # Add groups for the cell to be characterized.
-            new_cell_group = deepcopy(select_cell(self.library, cell_name))
-
-            # Populate the cell group with missing pin groups.
-            create_missing_pin_groups(
-                new_cell_group,
-                cell_type,
-                cell_conf,
-                output_pins,
-                input_pins_non_inverted
-            )
-
-            # Measure input pin capacitances.
-            measure_input_capacitances(
-                self.conf,
-                cell_conf,
-                input_pins,
-                input_pins_non_inverted,
-                output_pins,
-                new_cell_group
-            )
-
-            if isinstance(cell_type, Combinational):
-                characterize_combinational_output(
-                    self.new_library,
-                    new_cell_group,
-                    self.conf,
-                    cell_type,
-                    cell_conf,
-                    input_pins,
-                    input_pins_non_inverted,
-                    output_capacitances,
-                    input_transition_times
-                )
-            elif isinstance(cell_type, SingleEdgeDFF):
-                flipflop.characterize_flip_flop_output(
-                    self.new_library,
-                    new_cell_group,
-                    conf,
-                    cell_type,
-                    cell_conf,
-                    related_pin_transition,
-                    input_transition_times,
-                    output_capacitances=output_capacitances
-                )
-            elif isinstance(cell_type, Latch):
-                logger.info("Characterize latch.")
-                logger.error("Characterization of latches is not yet supported.")
-
-                """
-                Characterization of latches is very similar to the one of flip-flops. Delays, hold and setup times
-                are measured relative to the de-activating edge of the clock signal instead of the active clock edge.
-                """
-
-                assert False, "Characterization of latches is not yet supported."
-            else:
-                assert False, f"Unsupported cell type: {type(cell_type)}"
-
-            assert isinstance(new_cell_group, Group)
-            return new_cell_group
 
         # Characterize cells in parallel.
         if self.args.jobs != 1:
             new_cell_groups = joblib.Parallel(n_jobs=self.args.jobs, prefer='threads') \
-                (joblib.delayed(characterize_cell)(cell_name) for cell_name in self.cell_names)
+                (joblib.delayed(self.characterize_cell)(cell_name) for cell_name in self.cell_names)
         else:
             # Characterize cells sequentially.
-            new_cell_groups = [characterize_cell(cell_name) for cell_name in self.cell_names]
+            new_cell_groups = [self.characterize_cell(cell_name) for cell_name in self.cell_names]
 
         for new_cell_group in new_cell_groups:
             self.new_library.groups.append(new_cell_group)
 
+        self.write_liberty()
+
+    def write_liberty(self):
+        """
+        Dump new liberty library to disk.
+        """
+        
         with open(self.args.output, 'w') as f:
             logger.info("Write liberty: {}".format(self.args.output))
 
             # Write URL to lctime.
 
             s = """/*
-    Generated by lctime ({}).
-    */
+Generated by lctime ({}).
+*/
     
     """
             f.write(s.format(original_source_repository()))
 
             f.write(str(self.new_library))
+        
+    def characterize_cell(self, cell_name: str) -> Group:
+        """
+        Characterize a cell and create an updated cell group.
+        :param cell_name:
+        :return: Return an updated cell group.
+        """
+
+        # Create working directory if it does not exist yet.
+        cell_workingdir = os.path.join(self.conf.workingdir, cell_name)
+        if not os.path.exists(cell_workingdir):
+            os.mkdir(cell_workingdir)
+
+        # Get netlist and liberty group.
+        netlist_file = self.netlist_file_table[cell_name]
+        try:
+            cell_group = select_cell(self.library, cell_name)
+
+            # Determine type of cell (latch, flip-flop, combinational).
+            cell_type_liberty = recognize_cell_from_liberty(cell_group)
+            cell_type = cell_type_liberty
+        except KeyError as e:
+            logger.warning(f"No cell group defined yet in liberty file: {cell_name}")
+
+            if not self.args.analyze_cell_function:
+                abort("Cell is not defined in liberty. Enable cell recognition with --analyze.")
+
+            cell_type_liberty = Combinational()  # Default: Empty cell.
+
+            # Cell group does not exist, so create it.
+            logger.debug("Create empty cell group.")
+            cell_group = Group(group_name='cell', args=[cell_name])
+            self.library.groups.append(cell_group)
+
+            # The liberty did not define anything about this cell.
+            cell_type = None
+
+        # Check that the name matches.
+        assert cell_group.args == [cell_name], "Cell name does not match."  # This should not happen.
+
+        logger.info("Cell: {}".format(cell_name))
+        logger.info("Netlist: {}".format(netlist_file))
+
+        # Get information on pins from the liberty file.
+        input_pins = [str(s) for s in cell_type_liberty.inputs]
+        output_pins = [str(s) for s in cell_type_liberty.outputs.keys()]
+
+        liberty_pins = set(input_pins) | set(output_pins)
+        # Convert to strings.
+        liberty_pins = {str(p) for p in liberty_pins}
+
+        # Create a lookup table to reconstruct lower/upper case letters.
+        # This is a workaround. The SPICE parser converts everything to uppercase.
+        case_lookup_table = {p.lower(): p for p in liberty_pins}
+        if len(case_lookup_table) != len(liberty_pins):
+            # It's not a one-to-one mapping!
+            logger.warning(f"Mixed lower case and upper case could cause trouble.")
+
+        def fix_case(pin: str) -> str:
+            """
+            Restore lower/upper case of signals that went lost during SPICE parsing.
+            """
+            return case_lookup_table.get(pin.lower(), pin)
+
+        logger.info(f"Input pins as defined in liberty: {input_pins}")
+        logger.info(f"Output pins as defined in liberty: {sorted(cell_type_liberty.outputs.keys())}")
+
+        # Load netlist of cell
+        # TODO: Load all netlists at the beginning.
+        logger.info('Load netlist: %s', netlist_file)
+        try:
+            transistors_abstract, cell_pins = load_transistor_netlist(netlist_file, cell_name)
+        except Exception as e:
+            abort(str(e))
+
+        if len(transistors_abstract) == 0:
+            msg = "No transistors found in cell. (The netlist must be flattened, sub-circuits are not resolved)"
+            abort(msg)
+
+        cell_pins = [fix_case(p) for p in cell_pins]
+        for t in transistors_abstract:
+            t.source_net = fix_case(t.source_net)
+            t.drain_net = fix_case(t.drain_net)
+            t.gate_net = fix_case(t.gate_net)
+
+        # Get pin ordering of spice circuit.
+        spice_ports = get_subcircuit_ports(netlist_file, cell_name)
+        logger.info(f"SPICE subcircuit ports: {spice_ports}")
+        io_pins = net_util.get_io_pins(cell_pins)
+
+        # Detect power pins.
+        # TODO: don't decide based only on net name.
+        power_pins = [p for p in cell_pins if net_util.is_power_net(p)]
+        assert len(power_pins) == 2, "Expected to have 2 power pins."
+        vdd_pins = [p for p in power_pins if net_util.is_supply_net(p)]
+        gnd_pins = [p for p in power_pins if net_util.is_ground_net(p)]
+        assert len(vdd_pins) == 1, "Expected to find one VDD pin but found: {}".format(vdd_pins)
+        assert len(gnd_pins) == 1, "Expected to find one GND pin but found: {}".format(gnd_pins)
+        vdd_pin = vdd_pins[0]
+        gnd_pin = gnd_pins[0]
+
+        # Sanity check: All pins defined in liberty must appear in the SPICE netlist.
+        all_liberty_pins = set()
+        for pin in cell_group.get_groups("pin"):
+            assert isinstance(pin, liberty_parser.Group)
+            pin_name = pin.args[0]
+            all_liberty_pins.add(pin_name)
+            complementary_pin = pin.get("complementary_pin")
+            if complementary_pin is not None:
+                all_liberty_pins.add(complementary_pin)
+        all_spice_pins = set(cell_pins)
+        pins_not_in_spice = sorted(all_liberty_pins - all_spice_pins)
+
+        if pins_not_in_spice:
+            abort(f"Pins defined in liberty but not in SPICE netlist: {', '.join(pins_not_in_spice)}")
+
+        # Convert the transistor network into its multi-graph representation.
+        # This is used for a formal analysis of the network.
+        transistor_graph = _transistors2multigraph(transistors_abstract)
+
+        # Detect input nets from the transistor netlist (if enabled).
+        if self.args.analyze_cell_function:
+            logger.debug("Detect input nets from the circuit.")
+            detected_inputs = functional_abstraction.find_input_gates(transistor_graph)
+            # Detect nets that must be inputs (connected to gates only but do not
+            # appear in the list of pins in the SPICE circuit definition.
+            inputs_missing_in_spice = detected_inputs - all_spice_pins
+            if inputs_missing_in_spice:
+                logger.warning(f"The circuit has gate nets that must be inputs "
+                               f"but are not in the pin definition of the SPICE circuit: "
+                               f"{', '.join(sorted(inputs_missing_in_spice))}")
+            # Same check for pins declared in liberty template.
+            inputs_missing_in_liberty = detected_inputs - all_liberty_pins
+            if inputs_missing_in_liberty:
+                logger.warning(f"The circuit has gate nets that must be inputs "
+                               f"but are not declared as a pin in the liberty template: "
+                               f"{', '.join(sorted(inputs_missing_in_liberty))}")
+
+            # Add detected input pins.
+            diff = detected_inputs - set(input_pins)
+            if diff:
+                logger.info(f"Also include detected pins: {', '.join(sorted(diff))}")
+                input_pins.extend(diff)
+
+            # Find pins that are defined in the SPICE circuit but are not inputs nor power.
+            maybe_outputs = all_spice_pins - set(input_pins) - set(power_pins)
+            if maybe_outputs:
+                logger.info(f"Potential output pins: {', '.join(sorted(maybe_outputs))}")
+                output_pins.extend(maybe_outputs)
+
+        # Sanity check.
+        if len(input_pins) == 0:
+            msg = "Cell has no input pins."
+            logger.error(msg)
+            assert False, msg
+
+        # Sanity check.
+        if len(output_pins) == 0:
+            msg = "Cell has no output pins."
+            logger.error(msg)
+            assert False, msg
+
+        # Extract differential pairs from liberty.
+        # Liberty allows to reference complementary pins with the 'complementary_pin' attribute.
+        logger.debug("Load complementary pins from liberty.")
+        differential_inputs_liberty = dict()
+        for pin in cell_group.get_groups("pin"):
+            assert isinstance(pin, liberty_parser.Group)
+            pin_name = pin.args[0]
+            complementary_pin = pin.get("complementary_pin")
+            if complementary_pin is not None:
+                differential_inputs_liberty[pin_name] = complementary_pin
+
+        # Match differential inputs.
+        if self.args.diff is not None:
+            logger.debug("Match complementary pins from user-defined pattern.")
+            differential_inputs_from_pattern = find_differential_inputs_by_pattern(self.args.diff, input_pins)
+        else:
+            differential_inputs_from_pattern = dict()
+
+        # Merge the differential pairs provided from the user with the pairs detected from the liberty file.
+        differential_inputs_liberty.update(differential_inputs_from_pattern)
+        differential_inputs = differential_inputs_liberty
+
+        # Sanity checks on complementary pins.
+        # Complementary pin should not be defined as pin group in liberty file.
+        for pin in cell_group.get_groups("pin"):
+            assert isinstance(pin, liberty_parser.Group)
+            pin_name = pin.args[0]
+            if pin_name in differential_inputs.values():
+                logger.warning(
+                    f"Complementary pin is modelled in the liberty file but will not be characterized: {pin_name}")
+
+        for noninv, inv in differential_inputs.items():
+            logger.info(f"Differential input (+,-): {noninv}, {inv}")
+
+        # Find all input pins that are not inverted inputs of a differential pair.
+        inverted_pins = differential_inputs.values()
+        input_pins_non_inverted = [p for p in input_pins if p not in inverted_pins]
+        "All input pins that are not inverted inputs of a differential pair"
+
+        if self.args.analyze_cell_function:
+            # Derive boolean functions for the outputs from the netlist.
+            logger.info("Derive boolean functions for the outputs based on the netlist.")
+
+            cell_type = analyze_boolean_functions(
+                cell_type,
+                cell_group,
+                transistor_graph,
+                io_pins,
+                differential_inputs,
+                vdd_pin,
+                gnd_pin,
+            )
+
+            merge_cell_types(cell_type_liberty, cell_type)
+        else:
+            # Skip functional abstraction and take the functions provided in the liberty file.
+            # output_functions_symbolic = output_functions_user
+            pass  # TODO
+
+        logger.info("Run characterization.")
+
+        # Setup cell specific configuration.
+        cell_conf = CellConfig()
+        cell_conf.cell_name = cell_name
+        cell_conf.global_conf = self.conf
+        cell_conf.complementary_pins = differential_inputs
+        cell_conf.ground_net = gnd_pin
+        cell_conf.supply_net = vdd_pin
+        cell_conf.workingdir = cell_workingdir
+        cell_conf.spice_netlist_file = self.netlist_file_table[cell_name]
+        cell_conf.spice_ports = spice_ports
+
+        # Add groups for the cell to be characterized.
+        new_cell_group = deepcopy(select_cell(self.library, cell_name))
+
+        # Populate the cell group with missing pin groups.
+        create_missing_pin_groups(
+            new_cell_group,
+            cell_type,
+            cell_conf,
+            output_pins,
+            input_pins_non_inverted
+        )
+
+        # Measure input pin capacitances.
+        measure_input_capacitances(
+            self.conf,
+            cell_conf,
+            input_pins,
+            input_pins_non_inverted,
+            output_pins,
+            new_cell_group
+        )
+
+        if isinstance(cell_type, Combinational):
+            characterize_combinational_output(
+                self.new_library,
+                new_cell_group,
+                self.conf,
+                cell_type,
+                cell_conf,
+                input_pins,
+                input_pins_non_inverted,
+                self.output_capacitances,
+                self.input_transition_times
+            )
+        elif isinstance(cell_type, SingleEdgeDFF):
+            flipflop.characterize_flip_flop_output(
+                self.new_library,
+                new_cell_group,
+                conf,
+                cell_type,
+                cell_conf,
+                self.related_pin_transition,
+                self.input_transition_times,
+                output_capacitances=self.output_capacitances
+            )
+        elif isinstance(cell_type, Latch):
+            logger.info("Characterize latch.")
+            logger.error("Characterization of latches is not yet supported.")
+
+            """
+            Characterization of latches is very similar to the one of flip-flops. Delays, hold and setup times
+            are measured relative to the de-activating edge of the clock signal instead of the active clock edge.
+            """
+
+            assert False, "Characterization of latches is not yet supported."
+        else:
+            assert False, f"Unsupported cell type: {type(cell_type)}"
+
+        assert isinstance(new_cell_group, Group)
+        return new_cell_group
 
 
 def analyze_boolean_functions(
