@@ -599,6 +599,80 @@ class CellSetup:
         # Check that the name matches.
         assert self.cell_group.args == [self.cell_name], "Cell name does not match."  # This should not happen.
         
+    def init_pins(self):
+        # Get information on pins from the liberty file.
+        self.input_pins = [str(s) for s in self.cell_type_liberty.inputs]
+        self.output_pins = [str(s) for s in self.cell_type_liberty.outputs.keys()]
+        
+        logger.info(f"Input pins as defined in liberty: {self.input_pins}")
+        logger.info(f"Output pins as defined in liberty: {sorted(self.cell_type_liberty.outputs.keys())}")
+
+
+    def init_case_lookup_table(self):
+        """
+        Create lookup table to fix lower/upper case mismatches between Liberty and SPICE.
+        """
+        
+        # Get all IO pins defined in liberty.
+        liberty_pins = set(self.input_pins) | set(self.output_pins)
+        # Convert to strings.
+        liberty_pins = {str(p) for p in liberty_pins}
+        
+        # Create a lookup table to reconstruct lower/upper case letters.
+        # This is a workaround. The SPICE parser converts everything to uppercase.
+        self.case_lookup_table = {p.lower(): p for p in liberty_pins}
+        if len(self.case_lookup_table) != len(liberty_pins):
+            # It's not a one-to-one mapping!
+            logger.warning(f"Mixed lower case and upper case could cause trouble.")
+
+    def fix_case(self, pin: str) -> str:
+        """
+        Restore lower/upper case of signals that went lost during SPICE parsing.
+        """
+        return self.case_lookup_table.get(pin.lower(), pin)
+
+    def init_differential_inputs(self):
+
+        # Extract differential pairs from liberty.
+        # Liberty allows to reference complementary pins with the 'complementary_pin' attribute.
+        logger.debug("Load complementary pins from liberty.")
+        differential_inputs_liberty = dict()
+        for pin in self.cell_group.get_groups("pin"):
+            assert isinstance(pin, liberty_parser.Group)
+            pin_name = pin.args[0]
+            complementary_pin = pin.get("complementary_pin")
+            if complementary_pin is not None:
+                differential_inputs_liberty[pin_name] = complementary_pin
+
+        # Match differential inputs.
+        if self.lctime.args.diff is not None:
+            logger.debug("Match complementary pins from user-defined pattern.")
+            differential_inputs_from_pattern = find_differential_inputs_by_pattern(self.lctime.args.diff, self.input_pins)
+        else:
+            differential_inputs_from_pattern = dict()
+
+        # Merge the differential pairs provided from the user with the pairs detected from the liberty file.
+        differential_inputs_liberty.update(differential_inputs_from_pattern)
+        self.differential_inputs = differential_inputs_liberty
+
+        # Sanity checks on complementary pins.
+        # Complementary pin should not be defined as pin group in liberty file.
+        for pin in self.cell_group.get_groups("pin"):
+            assert isinstance(pin, liberty_parser.Group)
+            pin_name = pin.args[0]
+            if pin_name in self.differential_inputs.values():
+                logger.warning(
+                    f"Complementary pin is modelled in the liberty file but will not be characterized: {pin_name}")
+
+        for noninv, inv in self.differential_inputs.items():
+            logger.info(f"Differential input (+,-): {noninv}, {inv}")
+
+        # Find all input pins that are not inverted inputs of a differential pair.
+        inverted_pins = self.differential_inputs.values()
+
+        self.input_pins_non_inverted = [p for p in self.input_pins if p not in inverted_pins]
+        "All input pins that are not inverted inputs of a differential pair"
+
     def run(self):
         
         logger.info("Cell: {}".format(self.cell_name))
@@ -606,38 +680,14 @@ class CellSetup:
         self.init_workdir()
         self.init_indices()
         self.recognize_cell_type()
+        self.init_pins()
+        self.init_case_lookup_table()
 
-        
-        # Get netlist and liberty group.
-        netlist_file = self.lctime.netlist_file_table[self.cell_name]
-        logger.info("Netlist: {}".format(netlist_file))
-
-        # Get information on pins from the liberty file.
-        input_pins = [str(s) for s in self.cell_type_liberty.inputs]
-        output_pins = [str(s) for s in self.cell_type_liberty.outputs.keys()]
-
-        liberty_pins = set(input_pins) | set(output_pins)
-        # Convert to strings.
-        liberty_pins = {str(p) for p in liberty_pins}
-
-        # Create a lookup table to reconstruct lower/upper case letters.
-        # This is a workaround. The SPICE parser converts everything to uppercase.
-        case_lookup_table = {p.lower(): p for p in liberty_pins}
-        if len(case_lookup_table) != len(liberty_pins):
-            # It's not a one-to-one mapping!
-            logger.warning(f"Mixed lower case and upper case could cause trouble.")
-
-        def fix_case(pin: str) -> str:
-            """
-            Restore lower/upper case of signals that went lost during SPICE parsing.
-            """
-            return case_lookup_table.get(pin.lower(), pin)
-
-        logger.info(f"Input pins as defined in liberty: {input_pins}")
-        logger.info(f"Output pins as defined in liberty: {sorted(self.cell_type_liberty.outputs.keys())}")
 
         # Load netlist of cell
         # TODO: Load all netlists at the beginning.
+        # Get netlist and liberty group.
+        netlist_file = self.lctime.netlist_file_table[self.cell_name]
         logger.info('Load netlist: %s', netlist_file)
         try:
             transistors_abstract, cell_pins = load_transistor_netlist(netlist_file, self.cell_name)
@@ -648,11 +698,11 @@ class CellSetup:
             msg = "No transistors found in cell. (The netlist must be flattened, sub-circuits are not resolved)"
             abort(msg)
 
-        cell_pins = [fix_case(p) for p in cell_pins]
+        cell_pins = [self.fix_case(p) for p in cell_pins]
         for t in transistors_abstract:
-            t.source_net = fix_case(t.source_net)
-            t.drain_net = fix_case(t.drain_net)
-            t.gate_net = fix_case(t.gate_net)
+            t.source_net = self.fix_case(t.source_net)
+            t.drain_net = self.fix_case(t.drain_net)
+            t.gate_net = self.fix_case(t.gate_net)
 
         # Get pin ordering of spice circuit.
         spice_ports = get_subcircuit_ports(netlist_file, self.cell_name)
@@ -708,67 +758,26 @@ class CellSetup:
                                f"{', '.join(sorted(inputs_missing_in_liberty))}")
 
             # Add detected input pins.
-            diff = detected_inputs - set(input_pins)
+            diff = detected_inputs - set(self.input_pins)
             if diff:
                 logger.info(f"Also include detected pins: {', '.join(sorted(diff))}")
-                input_pins.extend(diff)
+                self.input_pins.extend(diff)
 
             # Find pins that are defined in the SPICE circuit but are not inputs nor power.
-            maybe_outputs = all_spice_pins - set(input_pins) - set(power_pins)
+            maybe_outputs = all_spice_pins - set(self.input_pins) - set(power_pins)
             if maybe_outputs:
                 logger.info(f"Potential output pins: {', '.join(sorted(maybe_outputs))}")
-                output_pins.extend(maybe_outputs)
+                self.output_pins.extend(maybe_outputs)
 
         # Sanity check.
-        if len(input_pins) == 0:
-            msg = "Cell has no input pins."
-            logger.error(msg)
-            assert False, msg
+        if len(self.input_pins) == 0:
+            abort("Cell has no input pins.")
 
         # Sanity check.
-        if len(output_pins) == 0:
-            msg = "Cell has no output pins."
-            logger.error(msg)
-            assert False, msg
+        if len(self.output_pins) == 0:
+            abort("Cell has no output pins.")
 
-        # Extract differential pairs from liberty.
-        # Liberty allows to reference complementary pins with the 'complementary_pin' attribute.
-        logger.debug("Load complementary pins from liberty.")
-        differential_inputs_liberty = dict()
-        for pin in self.cell_group.get_groups("pin"):
-            assert isinstance(pin, liberty_parser.Group)
-            pin_name = pin.args[0]
-            complementary_pin = pin.get("complementary_pin")
-            if complementary_pin is not None:
-                differential_inputs_liberty[pin_name] = complementary_pin
-
-        # Match differential inputs.
-        if self.lctime.args.diff is not None:
-            logger.debug("Match complementary pins from user-defined pattern.")
-            differential_inputs_from_pattern = find_differential_inputs_by_pattern(self.lctime.args.diff, input_pins)
-        else:
-            differential_inputs_from_pattern = dict()
-
-        # Merge the differential pairs provided from the user with the pairs detected from the liberty file.
-        differential_inputs_liberty.update(differential_inputs_from_pattern)
-        differential_inputs = differential_inputs_liberty
-
-        # Sanity checks on complementary pins.
-        # Complementary pin should not be defined as pin group in liberty file.
-        for pin in self.cell_group.get_groups("pin"):
-            assert isinstance(pin, liberty_parser.Group)
-            pin_name = pin.args[0]
-            if pin_name in differential_inputs.values():
-                logger.warning(
-                    f"Complementary pin is modelled in the liberty file but will not be characterized: {pin_name}")
-
-        for noninv, inv in differential_inputs.items():
-            logger.info(f"Differential input (+,-): {noninv}, {inv}")
-
-        # Find all input pins that are not inverted inputs of a differential pair.
-        inverted_pins = differential_inputs.values()
-        input_pins_non_inverted = [p for p in input_pins if p not in inverted_pins]
-        "All input pins that are not inverted inputs of a differential pair"
+        self.init_differential_inputs()
 
         if self.lctime.args.analyze_cell_function:
             # Derive boolean functions for the outputs from the netlist.
@@ -779,7 +788,7 @@ class CellSetup:
                 self.cell_group,
                 transistor_graph,
                 io_pins,
-                differential_inputs,
+                self.differential_inputs,
                 vdd_pin,
                 gnd_pin,
             )
@@ -790,13 +799,14 @@ class CellSetup:
             # output_functions_symbolic = output_functions_user
             pass  # TODO
 
+
         logger.info(f"Run characterization for {self.cell_name}")
 
         # Setup cell specific configuration.
         cell_conf = CellConfig()
         cell_conf.cell_name = self.cell_name
         cell_conf.global_conf = self.lctime.conf
-        cell_conf.complementary_pins = differential_inputs
+        cell_conf.complementary_pins = self.differential_inputs
         cell_conf.ground_net = gnd_pin
         cell_conf.supply_net = vdd_pin
         cell_conf.workingdir = self.cell_workingdir
@@ -811,17 +821,17 @@ class CellSetup:
             new_cell_group,
             self.cell_type,
             cell_conf,
-            output_pins,
-            input_pins_non_inverted
+            self.output_pins,
+            self.input_pins_non_inverted
         )
 
         # Measure input pin capacitances.
         measure_input_capacitances(
             self.lctime.conf,
             cell_conf,
-            input_pins,
-            input_pins_non_inverted,
-            output_pins,
+            self.input_pins,
+            self.input_pins_non_inverted,
+            self.output_pins,
             new_cell_group
         )
 
@@ -832,8 +842,8 @@ class CellSetup:
                 self.lctime.conf,
                 self.cell_type,
                 cell_conf,
-                input_pins,
-                input_pins_non_inverted,
+                self.input_pins,
+                self.input_pins_non_inverted,
                 self.output_capacitances,
                 self.input_transition_times
             )
