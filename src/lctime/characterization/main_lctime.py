@@ -1381,7 +1381,9 @@ def characterize_flip_flop_output(
         related_pin = clock_pin
         
         # Find data input pins which can control the output pin.
-        possible_input_pins = find_flipflop_state_control_and_observe_pins(cell_type, preset_clear_input)
+        possible_input_pins = seq_recognition.find_flipflop_state_control_and_observe_pins(
+                                        cell_type, preset_clear_input
+                                    )
 
         assert len(possible_input_pins) > 0, "No input pin found which can control the flip-flop state."
             
@@ -1450,7 +1452,6 @@ def characterize_flip_flop_output(
             "total_output_net_capacitance": output_capacitances,
             "input_net_transition": input_transition_times
         }
-        print(result)
 
         # Get the table indices.
         # TODO: get correct index/variable mapping from liberty file.
@@ -1490,82 +1491,3 @@ def characterize_flip_flop_output(
         # Attach timing group to output pin group.
         output_pin_group.groups.append(timing_group)
        
-def find_flipflop_state_control_and_observe_pins(
-    cell_type: SingleEdgeDFF,
-    other_inputs: Dict[sympy.Symbol, sympy.Symbol]
-) -> List[Tuple[str, Dict[str, bool]]]:
-    """
-    Find data input pins which control the state of the flip-flop.
-
-
-    Returns a list of pins which can control the flip-flop state together with 
-    1) an assignment of other input values (clear, preset, ...) such that the input pin becomes controlling
-    2) a list of output pins which allow to observe the internal state with the given other input values
-    """
-
-    assert isinstance(cell_type, SingleEdgeDFF), "cell_type must be a SingleEdgeDFF"
-    
-    # Find all data pins that are relevant for the internal state of the flip-flop.
-    data_in_pins = sorted(cell_type.next_state.atoms(sympy.Symbol))
-    logger.debug(f"Input pins relevant for internal state: {data_in_pins}")
-
-    # Find data input pins which can control the output pin.
-    controlling_input_pins = []
-    for data_in_pin in data_in_pins:
-    
-        # Find all assignments of the other data pins such that the data pin controls
-        # the internal state.
-        # Find values of the other pins such that:
-        #  next_state(data_in_pin=0, other_pins) != next_state(data_in_pin=1, other_pins)
-        next_state_0 = cell_type.next_state.subs({data_in_pin: False})
-        next_state_1 = cell_type.next_state.subs({data_in_pin: True})
-        models = list(satisfiable(next_state_0 ^ next_state_1, all_models=True))
-
-        for other_pin_values in models:
-            # Express the assignment of the other pins as a boolean formula.
-            # This will also be used as a 'when' statement in the liberty file.
-            when_other_inputs = sympy.And(*(pin if value else ~pin for pin, value in other_pin_values.items()))
-            logger.info(f"Measure clock-to-output delay with data input {data_in_pin} when {when_other_inputs}.")
-
-            # Set static voltages of other input pins.
-            other_pin_values.update(other_inputs)
-            
-            logger.debug(f"Pin {data_in_pin} controls the flip-flop state when: {other_pin_values}")
-            
-
-            static_input_voltages = dict()
-            for pin, value in other_pin_values.items():
-                if not isinstance(pin, sympy.Symbol):
-                    continue
-                value = value == True
-                pin = str(pin)
-                logger.debug(f"{pin} = {value} V")
-                static_input_voltages[pin] = value
-                
-            # Find an output pin such that the internal state is observable.
-            observer_outputs = []  # Output pins that can observe the internal memory state.
-            for output_pin, output in cell_type.outputs.items():
-                function = output.function
-                # Substitute with constant input pins.
-                function = function.subs(other_pin_values)
-
-                # Compute the output for all values of the internal state and make sure it is different.
-                function0 = function.subs({cell_type.internal_state: False})
-                function1 = function.subs({cell_type.internal_state: True})
-                is_observable = not satisfiable(~(function0 ^ function1))  # Test if function0 != function1
-
-                logger.debug(f"Internal state {cell_type.internal_state} observable from output {output_pin} "
-                             f"when {other_pin_values}: {is_observable}")
-
-                if is_observable:
-                    observer_outputs.append(output_pin)
-
-            logger.debug(f"Internal state is observable from: {observer_outputs}")
-
-            # Remember the pin which controls the internal state and the the required
-            # voltages at the other pins.
-            controlling_input_pins.append((str(data_in_pin), static_input_voltages, observer_outputs))
-
-    return controlling_input_pins
-
-
