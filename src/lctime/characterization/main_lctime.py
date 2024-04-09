@@ -189,6 +189,7 @@ class LcTime:
         workdir: str = None
         library: Group = None
         new_library: Group = None # Library under construction.
+        conf: CharacterizationConfig = None
 
     def f00_parse_args(self):
         parser = argparse.ArgumentParser(
@@ -342,30 +343,56 @@ class LcTime:
         table_types = ['lu_table_template', 'power_lut_template']
         self.new_library.groups = [g for g in self.new_library.groups if g.group_name not in table_types]
 
-    def run(self):
-        logger = logging.getLogger(__name__)
-        logger.info("lctime main function")
-
-        self.f00_parse_args()
-        self.f01_init_logging()
-        self.f02_init_workdir()
-        self.f03_init_netlists()
-        self.f04_check_cell_names()
-        self.f05_load_liberty_file()
-        self.f06_check_delay_model()
-        self.f07_init_new_library()
-
-
-
-
-
+    def f10_init_characterization_config(self):
+        
+        # Setup configuration struct.
+        conf = CharacterizationConfig()
+        
         # Load operation voltage and temperature.
         # TODO: load voltage/temperature from operating_conditions group
-        supply_voltage = self.library['nom_voltage']
-        temperature = self.library['nom_temperature']
-        logger.info('Supply voltage = {:f} V'.format(supply_voltage))
-        logger.info('Temperature = {:f} V'.format(temperature))
+        conf.supply_voltage = self.library['nom_voltage']
+        logger.info('Supply voltage = {:f} V'.format(conf.supply_voltage))
+        conf.temperature = self.library['nom_temperature']
+        logger.info('Temperature = {:f} V'.format(conf.temperature))
 
+        # Read trip points from liberty file.
+        conf.trip_points = util.read_trip_points_from_liberty(self.library)
+        logger.debug(conf.trip_points)
+        
+        # Get timing corner from liberty file.
+        # TODO: let user overwrite it.
+        calc_modes = {
+            'typical': CalcMode.TYPICAL,
+            'worst': CalcMode.WORST,
+            'best': CalcMode.BEST,
+        }
+        assert self.args.calc_mode in calc_modes, "Unknown calculation mode: {}".format(self.args.calc_mode)
+        conf.timing_corner = calc_modes[self.args.calc_mode]
+        logger.info("timing corner: {}".format(conf.timing_corner.name))
+        
+        conf.setup_statements = self.setup_statements
+        
+        # Simulation time step
+        time_resolution_seconds = float(self.args.time_step)
+        logger.info(f"Time resolution = {time_resolution_seconds}s")
+        if time_resolution_seconds <= 0:
+            abort('Time step must be larger than zero.')
+
+        if time_resolution_seconds > 1e-9:
+            logger.warning(f"Timestep is larger than 1ns: {time_resolution_seconds}s")
+        conf.time_step = time_resolution_seconds
+        
+        conf.workingdir = self.workingdir
+        conf.debug = self.args.debug
+        conf.debug_plots = self.args.debug_plots
+        conf.get_units_from_liberty(self.library)
+
+        logger.info(f"Capacitance unit: {conf.capacitance_unit} F")
+        logger.info(f"Time unit: {conf.time_unit} s")
+        self.conf = conf
+        
+    def f08_load_operating_conditions(self):
+        # TODO: not used at the moment
         # Get timing corner from liberty file.
         # Find definitions of operating conditions and sort them by name.
         operating_conditions_list = self.library.get_groups('operating_conditions')
@@ -387,28 +414,13 @@ class LcTime:
         }
         """
 
-        # Get timing corner from liberty file.
-        # TODO: let user overwrite it.
-        calc_modes = {
-            'typical': CalcMode.TYPICAL,
-            'worst': CalcMode.WORST,
-            'best': CalcMode.BEST,
-        }
-
         # TODO: Make use of this.
         default_operating_conditions = self.library['default_operating_conditions']
         logger.info("Default operating conditions: {}".format(default_operating_conditions))
-
-        assert self.args.calc_mode in calc_modes, "Unknown calculation mode: {}".format(self.args.calc_mode)
-
-        calc_mode = calc_modes[self.args.calc_mode]
-        logger.info("calc_mode: {}".format(calc_mode.name))
-
-        # Read trip points from liberty file.
-        trip_points = util.read_trip_points_from_liberty(self.library)
-
-        logger.debug(trip_points)
-
+        
+    def f09_init_include_statements(self):
+        # Create .include statements for ngspice
+        
         spice_includes = self.args.include if self.args.include else []
         if len(spice_includes) == 0:
             logger.warning("No transistor model supplied. Use --include or -I.")
@@ -445,7 +457,23 @@ class LcTime:
         # .INCLUDE statements
         include_statements = [f".include {i}" for i in spice_includes]
 
-        setup_statements = library_statements + include_statements
+        self.setup_statements = library_statements + include_statements
+        
+    def run(self):
+        logger = logging.getLogger(__name__)
+        logger.info("lctime main function")
+
+        self.f00_parse_args()
+        self.f01_init_logging()
+        self.f02_init_workdir()
+        self.f03_init_netlists()
+        self.f04_check_cell_names()
+        self.f05_load_liberty_file()
+        self.f06_check_delay_model()
+        self.f07_init_new_library()
+        self.f08_load_operating_conditions()
+        self.f09_init_include_statements()
+        self.f10_init_characterization_config()
 
         # Setup array of output capacitances and input slews.
         output_capacitances = np.array([float(s.strip()) for s in self.args.output_loads.split(",")]) * 1e-12  # pF
@@ -463,31 +491,6 @@ class LcTime:
         if related_pin_transition is not None:
             logger.info(f"Related pin transition times [ns]: {related_pin_transition / 1e-9}")
 
-        # TODO: Make time resolution parametrizable.
-        time_resolution_seconds = float(self.args.time_step)
-        logger.info(f"Time resolution = {time_resolution_seconds}s")
-        if time_resolution_seconds <= 0:
-            abort('Time step must be larger than zero.')
-
-        if time_resolution_seconds > 1e-9:
-            logger.warning(f"Timestep is larger than 1ns: {time_resolution_seconds}s")
-
-        # Setup configuration struct.
-        conf = CharacterizationConfig()
-        conf.supply_voltage = supply_voltage
-        conf.trip_points = trip_points
-        conf.timing_corner = calc_mode
-        conf.setup_statements = setup_statements
-        conf.time_step = time_resolution_seconds
-        conf.temperature = temperature
-        conf.workingdir = self.workingdir
-        conf.debug = self.args.debug
-        conf.debug_plots = self.args.debug_plots
-
-        conf.get_units_from_liberty(self.library)
-
-        logger.info(f"Capacitance unit: {conf.capacitance_unit} F")
-        logger.info(f"Time unit: {conf.time_unit} s")
 
         # Characterize all cells in the list.
         def characterize_cell(cell_name: str) -> Group:
@@ -498,7 +501,7 @@ class LcTime:
             """
 
             # Create working directory if it does not exist yet.
-            cell_workingdir = os.path.join(conf.workingdir, cell_name)
+            cell_workingdir = os.path.join(self.conf.workingdir, cell_name)
             if not os.path.exists(cell_workingdir):
                 os.mkdir(cell_workingdir)
 
@@ -715,7 +718,7 @@ class LcTime:
             # Setup cell specific configuration.
             cell_conf = CellConfig()
             cell_conf.cell_name = cell_name
-            cell_conf.global_conf = conf
+            cell_conf.global_conf = self.conf
             cell_conf.complementary_pins = differential_inputs
             cell_conf.ground_net = gnd_pin
             cell_conf.supply_net = vdd_pin
@@ -737,7 +740,7 @@ class LcTime:
 
             # Measure input pin capacitances.
             measure_input_capacitances(
-                conf,
+                self.conf,
                 cell_conf,
                 input_pins,
                 input_pins_non_inverted,
@@ -749,7 +752,7 @@ class LcTime:
                 characterize_combinational_output(
                     self.new_library,
                     new_cell_group,
-                    conf,
+                    self.conf,
                     cell_type,
                     cell_conf,
                     input_pins,
