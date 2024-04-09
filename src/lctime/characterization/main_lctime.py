@@ -266,10 +266,10 @@ def main():
     log_level = logging.DEBUG if DEBUG else logging.INFO
 
     if DEBUG:
-        log_format = '%(module)16s %(levelname)8s: %(message)s'
-    else:
         # Also output name of function in DEBUG mode.
         log_format = '%(module)16s %(funcName)16s %(levelname)8s: %(message)s'
+    else:
+        log_format = '%(levelname)8s: %(message)s'
 
     logging.basicConfig(format=log_format, level=log_level)
 
