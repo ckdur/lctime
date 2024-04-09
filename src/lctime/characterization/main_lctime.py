@@ -1398,52 +1398,98 @@ def characterize_flip_flop_output(
 
         logger.info(f"Use input pin {data_in_pin} with other pin values {static_input_voltages}")
      
-        for clock_transition_time in related_pin_transition:
-            for output_capacitance in output_capacitances:
+        def delay_f(clock_transition_time, output_capacitance, data_edge_polarity: bool) -> float:
+            output_load_capacitances = {data_out_pin_name: output_capacitance} 
+            
+            # Choose setup and hold time to be used for the delay measurement.
+            settings = {
+                # TODO: use measured setup/hold times
+                CalcMode.BEST: (1e-9, 1e-9), # Use large setup and hold times. This leads to shorter propagation time.
+                CalcMode.WORST: (1e-9, 1e-9), # Use short setup and hold times. This leads to longer propagation times.
+                CalcMode.TYPICAL: (1e-9, 1e-9),
+            }
+            
+            (setup_time, hold_time) = settings[conf.timing_corner]
+            
+            clock_cycle_hint = clock_pulse_width_guess * 2 # Choose a big-enough clock pulse such that data is sampled for sure.
         
-                output_load_capacitances = {data_out_pin_name: output_capacitance} 
-                
-                for data_edge_polarity in [False, True]:
-                    
-                    # Choose setup and hold time to be used for the delay measurement.
-                    settings = {
-                        CalcMode.BEST: (1e-9, 1e-9), # Use large setup and hold times. This leads to shorter propagation time.
-                        CalcMode.WORST: (1e-9, 1e-9), # Use short setup and hold times. This leads to longer propagation times.
-                        CalcMode.TYPICAL: (1e-9, 1e-9),
-                    }
-                    
-                    (setup_time, hold_time) = settings[conf.timing_corner]
-                    
-                    clock_cycle_hint = clock_pulse_width_guess * 2 # Choose a big-enough clock pulse such that data is sampled for sure.
-        
-                    data_transition_time = 1e-13 # TODO
-                    
-                    delay, slew_time = measure_clock_to_output_delay(
-                        cell_conf,
-                        data_in_pin,
-                        data_out_pin_name,
-                        clock_pin,
-                        clock_edge_polarity,
-                        data_edge_polarity,
-                        output_load_capacitances,
-                        clock_transition_time,
-                        data_transition_time,
-                        setup_time,
-                        hold_time,
-                        clock_cycle_hint,
-                        static_input_voltages
-                    )
-                    print(f"delay = {delay}")
-        
-        #timing_group = Group(
-        #    'timing',
-        #    attributes={
-        #        'timing_type': [f'rising_edge'],
-        #        'related_pin': [EscapedString(related_pin)]
-        #    },
-        #    groups=[cell_rise, cell_fall]
-        #)
+            data_transition_time = 1e-13 # TODO
+            
+            delay, slew_time = measure_clock_to_output_delay(
+                cell_conf,
+                data_in_pin,
+                data_out_pin_name,
+                clock_pin,
+                clock_edge_polarity,
+                data_edge_polarity,
+                output_load_capacitances,
+                clock_transition_time,
+                data_transition_time,
+                setup_time,
+                hold_time,
+                clock_cycle_hint,
+                static_input_voltages
+            )
+            return delay, slew_time
+      
+        def delay_rise_fall(clock_transition_time, output_capacitance) -> Tuple[float, float]:
+            rise_delay, rise_transition = delay_f(clock_transition_time, output_capacitance, True)
+            fall_delay, fall_transition = delay_f(clock_transition_time, output_capacitance, False)
+            return rise_delay, rise_transition, fall_delay, fall_transition        
 
+        f_vec = np.vectorize(delay_rise_fall, cache=True)
+        xx, yy = np.meshgrid(input_transition_times, output_capacitances)
+        # Evaluate timing on the grid.
+        rise_delay, rise_transition, fall_delay, fall_transition = f_vec(xx, yy)
+
+        result = {
+            "cell_rise": rise_delay,
+            "cell_fall": fall_delay,
+            "rise_transition": rise_transition,
+            "fall_transition": fall_transition,
+            "total_output_net_capacitance": output_capacitances,
+            "input_net_transition": input_transition_times
+        }
+        print(result)
+
+        # Get the table indices.
+        # TODO: get correct index/variable mapping from liberty file.
+        index_1 = result['total_output_net_capacitance'] / conf.capacitance_unit
+        index_2 = result['input_net_transition'] / conf.time_unit
+
+        # Create template tables.
+        delay_template_table = liberty_util.create_delay_template_table(new_library, len(index_1), len(index_2))
+        delay_table_template_name = delay_template_table.args[0]
+
+        # Create liberty timing tables.
+        timing_tables = []
+        for table_name in ['cell_rise', 'cell_fall', 'rise_transition', 'fall_transition']:
+            table = Group(
+                table_name,
+                args=[delay_table_template_name],
+            )
+
+            table.set_array('index_1', index_1)
+            table.set_array('index_2', index_2)
+            table.set_array('values', result[table_name] / conf.time_unit)
+
+            timing_tables.append(table)
+
+        # Create the liberty timing group.
+        timing_attributes = [
+            Attribute('related_pin', EscapedString(related_pin)),
+            Attribute('timing_sense', 'non_unate')
+        ]
+
+        timing_group = Group(
+            'timing',
+            attributes=timing_attributes,
+            groups=timing_tables
+        )
+
+        # Attach timing group to output pin group.
+        output_pin_group.groups.append(timing_group)
+       
 def find_flipflop_state_control_and_observe_pins(
     cell_type: SingleEdgeDFF,
     other_inputs: Dict[sympy.Symbol, sympy.Symbol]
