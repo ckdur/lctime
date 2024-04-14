@@ -673,6 +673,106 @@ class CellSetup:
         self.input_pins_non_inverted = [p for p in self.input_pins if p not in inverted_pins]
         "All input pins that are not inverted inputs of a differential pair"
 
+
+    def create_cell_config(self) -> CellConfig:
+        # Setup cell specific configuration.
+        cell_conf = CellConfig()
+        cell_conf.cell_name = self.cell_name
+        cell_conf.global_conf = self.lctime.conf
+        cell_conf.complementary_pins = self.differential_inputs
+        cell_conf.ground_net = self.gnd_pin()
+        cell_conf.supply_net = self.vdd_pin()
+        cell_conf.workingdir = self.cell_workingdir
+        cell_conf.spice_netlist_file = self.lctime.netlist_file_table[self.cell_name]
+        
+        # Get pin ordering of spice circuit.
+        cell_conf.spice_ports = get_subcircuit_ports(self.netlist_file_path(), self.cell_name)
+        logger.debug(f"SPICE subcircuit ports: {cell_conf.spice_ports}")
+
+        return cell_conf
+        
+    def netlist_file_path(self) -> str:
+        """
+        Get path to SPICE netlist.
+        """
+        return self.lctime.netlist_file_table[self.cell_name]
+
+    def vdd_pin(self):
+        # TODO: don't decide based only on net name.
+        power_pins = self.power_pins()
+        assert len(power_pins) == 2, "Expected to have 2 power pins."
+        vdd_pins = [p for p in power_pins if net_util.is_supply_net(p)]
+        assert len(vdd_pins) == 1, "Expected to find one VDD pin but found: {}".format(vdd_pins)
+        return vdd_pins[0]
+    
+    def gnd_pin(self):
+        # TODO: don't decide based only on net name.
+        power_pins = self.power_pins()
+        assert len(power_pins) == 2, "Expected to have 2 power pins."
+        gnd_pins = [p for p in power_pins if net_util.is_ground_net(p)]
+        assert len(gnd_pins) == 1, "Expected to find one GND pin but found: {}".format(gnd_pins)
+        return gnd_pins[0]
+        
+        
+    def power_pins(self) -> List[str]:
+        # TODO: don't decide based only on net name.
+        return [p for p in self.cell_pins if net_util.is_power_net(p)]
+        
+
+    def get_liberty_pins(self) -> Set:
+        """
+        Get set of pin names defined in liberty template.
+        """
+        liberty_pins = set()
+        for pin in self.cell_group.get_groups("pin"):
+            assert isinstance(pin, liberty_parser.Group)
+            pin_name = pin.args[0]
+            liberty_pins.add(pin_name)
+            complementary_pin = pin.get("complementary_pin")
+            if complementary_pin is not None:
+                liberty_pins.add(complementary_pin)
+        return liberty_pins
+        
+    def check_pins(self):
+        # Sanity check: All pins defined in liberty must appear in the SPICE netlist.
+        all_spice_pins = set(self.cell_pins)
+        pins_not_in_spice = sorted(self.get_liberty_pins() - all_spice_pins)
+
+        if pins_not_in_spice:
+            abort(f"Pins defined in liberty but not in SPICE netlist: {', '.join(pins_not_in_spice)}")
+
+    def io_pins(self):
+        """
+        Get data pins, i.e. all pins which are not power pins.
+        """
+        return net_util.get_io_pins(self.cell_pins)
+
+    def load_netlist(self):
+        """ Load netlist of cell
+        Populate the self.transistor_graph variable.
+        """
+        # TODO: Load all netlists at the beginning of lctime to detect errors early.
+        # Get netlist and liberty group.
+        logger.info('Load netlist: %s', self.netlist_file_path())
+        try:
+            transistors_abstract, cell_pins = load_transistor_netlist(self.netlist_file_path(), self.cell_name)
+        except Exception as e:
+            abort(str(e))
+
+        if len(transistors_abstract) == 0:
+            msg = "No transistors found in cell. (The netlist must be flattened, sub-circuits are not resolved)"
+            abort(msg)
+
+        self.cell_pins = [self.fix_case(p) for p in cell_pins]
+        for t in transistors_abstract:
+            t.source_net = self.fix_case(t.source_net)
+            t.drain_net = self.fix_case(t.drain_net)
+            t.gate_net = self.fix_case(t.gate_net)
+
+        # Convert the transistor network into its multi-graph representation.
+        # This is used for a formal analysis of the network.
+        self.transistor_graph = _transistors2multigraph(transistors_abstract)
+        
     def run(self):
         
         logger.info("Cell: {}".format(self.cell_name))
@@ -684,74 +784,25 @@ class CellSetup:
         self.init_case_lookup_table()
 
 
-        # Load netlist of cell
-        # TODO: Load all netlists at the beginning.
-        # Get netlist and liberty group.
-        netlist_file = self.lctime.netlist_file_table[self.cell_name]
-        logger.info('Load netlist: %s', netlist_file)
-        try:
-            transistors_abstract, cell_pins = load_transistor_netlist(netlist_file, self.cell_name)
-        except Exception as e:
-            abort(str(e))
+        self.load_netlist()
 
-        if len(transistors_abstract) == 0:
-            msg = "No transistors found in cell. (The netlist must be flattened, sub-circuits are not resolved)"
-            abort(msg)
-
-        cell_pins = [self.fix_case(p) for p in cell_pins]
-        for t in transistors_abstract:
-            t.source_net = self.fix_case(t.source_net)
-            t.drain_net = self.fix_case(t.drain_net)
-            t.gate_net = self.fix_case(t.gate_net)
-
-        # Get pin ordering of spice circuit.
-        spice_ports = get_subcircuit_ports(netlist_file, self.cell_name)
-        logger.info(f"SPICE subcircuit ports: {spice_ports}")
-        io_pins = net_util.get_io_pins(cell_pins)
-
-        # Detect power pins.
-        # TODO: don't decide based only on net name.
-        power_pins = [p for p in cell_pins if net_util.is_power_net(p)]
-        assert len(power_pins) == 2, "Expected to have 2 power pins."
-        vdd_pins = [p for p in power_pins if net_util.is_supply_net(p)]
-        gnd_pins = [p for p in power_pins if net_util.is_ground_net(p)]
-        assert len(vdd_pins) == 1, "Expected to find one VDD pin but found: {}".format(vdd_pins)
-        assert len(gnd_pins) == 1, "Expected to find one GND pin but found: {}".format(gnd_pins)
-        vdd_pin = vdd_pins[0]
-        gnd_pin = gnd_pins[0]
-
-        # Sanity check: All pins defined in liberty must appear in the SPICE netlist.
-        all_liberty_pins = set()
-        for pin in self.cell_group.get_groups("pin"):
-            assert isinstance(pin, liberty_parser.Group)
-            pin_name = pin.args[0]
-            all_liberty_pins.add(pin_name)
-            complementary_pin = pin.get("complementary_pin")
-            if complementary_pin is not None:
-                all_liberty_pins.add(complementary_pin)
-        all_spice_pins = set(cell_pins)
-        pins_not_in_spice = sorted(all_liberty_pins - all_spice_pins)
-
-        if pins_not_in_spice:
-            abort(f"Pins defined in liberty but not in SPICE netlist: {', '.join(pins_not_in_spice)}")
-
-        # Convert the transistor network into its multi-graph representation.
-        # This is used for a formal analysis of the network.
-        transistor_graph = _transistors2multigraph(transistors_abstract)
+        self.check_pins()
+        
 
         # Detect input nets from the transistor netlist (if enabled).
         if self.lctime.args.analyze_cell_function:
             logger.debug("Detect input nets from the circuit.")
-            detected_inputs = functional_abstraction.find_input_gates(transistor_graph)
+            detected_inputs = functional_abstraction.find_input_gates(self.transistor_graph)
             # Detect nets that must be inputs (connected to gates only but do not
             # appear in the list of pins in the SPICE circuit definition.
+            all_spice_pins = set(self.cell_pins)
             inputs_missing_in_spice = detected_inputs - all_spice_pins
             if inputs_missing_in_spice:
                 logger.warning(f"The circuit has gate nets that must be inputs "
                                f"but are not in the pin definition of the SPICE circuit: "
                                f"{', '.join(sorted(inputs_missing_in_spice))}")
             # Same check for pins declared in liberty template.
-            inputs_missing_in_liberty = detected_inputs - all_liberty_pins
+            inputs_missing_in_liberty = detected_inputs - self.get_liberty_pins()
             if inputs_missing_in_liberty:
                 logger.warning(f"The circuit has gate nets that must be inputs "
                                f"but are not declared as a pin in the liberty template: "
@@ -764,7 +815,7 @@ class CellSetup:
                 self.input_pins.extend(diff)
 
             # Find pins that are defined in the SPICE circuit but are not inputs nor power.
-            maybe_outputs = all_spice_pins - set(self.input_pins) - set(power_pins)
+            maybe_outputs = all_spice_pins - set(self.input_pins) - set(self.power_pins())
             if maybe_outputs:
                 logger.info(f"Potential output pins: {', '.join(sorted(maybe_outputs))}")
                 self.output_pins.extend(maybe_outputs)
@@ -786,11 +837,11 @@ class CellSetup:
             self.cell_type = analyze_boolean_functions(
                 self.cell_type,
                 self.cell_group,
-                transistor_graph,
-                io_pins,
+                self.transistor_graph,
+                self.io_pins(),
                 self.differential_inputs,
-                vdd_pin,
-                gnd_pin,
+                self.vdd_pin(),
+                self.gnd_pin(),
             )
 
             merge_cell_types(self.cell_type_liberty, self.cell_type)
@@ -802,17 +853,9 @@ class CellSetup:
 
         logger.info(f"Run characterization for {self.cell_name}")
 
-        # Setup cell specific configuration.
-        cell_conf = CellConfig()
-        cell_conf.cell_name = self.cell_name
-        cell_conf.global_conf = self.lctime.conf
-        cell_conf.complementary_pins = self.differential_inputs
-        cell_conf.ground_net = gnd_pin
-        cell_conf.supply_net = vdd_pin
-        cell_conf.workingdir = self.cell_workingdir
-        cell_conf.spice_netlist_file = self.lctime.netlist_file_table[self.cell_name]
-        cell_conf.spice_ports = spice_ports
 
+        cell_conf = self.create_cell_config()
+        
         # Add groups for the cell to be characterized.
         new_cell_group = deepcopy(select_cell(self.lctime.library, self.cell_name))
 
