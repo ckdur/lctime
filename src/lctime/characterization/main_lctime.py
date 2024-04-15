@@ -563,7 +563,9 @@ class CellSetup:
         self.cell_type = None
 
     def init_workdir(self):
-        # Create working directory if it does not exist yet.
+        """
+        Create working directory if it does not exist yet.
+        """
         self.cell_workingdir = os.path.join(self.lctime.conf.workingdir, self.cell_name)
         if not os.path.exists(self.cell_workingdir):
             os.mkdir(self.cell_workingdir)
@@ -734,7 +736,9 @@ class CellSetup:
         return liberty_pins
         
     def check_pins(self):
-        # Sanity check: All pins defined in liberty must appear in the SPICE netlist.
+        """
+        Sanity check: All pins defined in liberty must appear in the SPICE netlist.
+        """
         all_spice_pins = set(self.cell_pins)
         pins_not_in_spice = sorted(self.get_liberty_pins() - all_spice_pins)
 
@@ -773,65 +777,45 @@ class CellSetup:
         # This is used for a formal analysis of the network.
         self.transistor_graph = _transistors2multigraph(transistors_abstract)
         
-    def run(self):
+
+    def recognize_input_pins(self):
+        """
+        Dectect input pins / gates by analyzing the transistor network.
+        """
         
-        logger.info("Cell: {}".format(self.cell_name))
+        logger.debug("Detect input nets from the circuit.")
+        detected_inputs = functional_abstraction.find_input_gates(self.transistor_graph)
+        # Detect nets that must be inputs (connected to gates only but do not
+        # appear in the list of pins in the SPICE circuit definition.
+        all_spice_pins = set(self.cell_pins)
+        inputs_missing_in_spice = detected_inputs - all_spice_pins
+        if inputs_missing_in_spice:
+            logger.warning(f"The circuit has gate nets that must be inputs "
+                           f"but are not in the pin definition of the SPICE circuit: "
+                           f"{', '.join(sorted(inputs_missing_in_spice))}")
+        # Same check for pins declared in liberty template.
+        inputs_missing_in_liberty = detected_inputs - self.get_liberty_pins()
+        if inputs_missing_in_liberty:
+            logger.warning(f"The circuit has gate nets that must be inputs "
+                           f"but are not declared as a pin in the liberty template: "
+                           f"{', '.join(sorted(inputs_missing_in_liberty))}")
 
-        self.init_workdir()
-        self.init_indices()
-        self.recognize_cell_type()
-        self.init_pins()
-        self.init_case_lookup_table()
+        # Add detected input pins.
+        diff = detected_inputs - set(self.input_pins)
+        if diff:
+            logger.info(f"Also include detected pins: {', '.join(sorted(diff))}")
+            self.input_pins.extend(diff)
 
+        # Find pins that are defined in the SPICE circuit but are not inputs nor power.
+        maybe_outputs = all_spice_pins - set(self.input_pins) - set(self.power_pins())
+        if maybe_outputs:
+            logger.info(f"Potential output pins: {', '.join(sorted(maybe_outputs))}")
+            self.output_pins.extend(maybe_outputs)
 
-        self.load_netlist()
-
-        self.check_pins()
-        
-
-        # Detect input nets from the transistor netlist (if enabled).
-        if self.lctime.args.analyze_cell_function:
-            logger.debug("Detect input nets from the circuit.")
-            detected_inputs = functional_abstraction.find_input_gates(self.transistor_graph)
-            # Detect nets that must be inputs (connected to gates only but do not
-            # appear in the list of pins in the SPICE circuit definition.
-            all_spice_pins = set(self.cell_pins)
-            inputs_missing_in_spice = detected_inputs - all_spice_pins
-            if inputs_missing_in_spice:
-                logger.warning(f"The circuit has gate nets that must be inputs "
-                               f"but are not in the pin definition of the SPICE circuit: "
-                               f"{', '.join(sorted(inputs_missing_in_spice))}")
-            # Same check for pins declared in liberty template.
-            inputs_missing_in_liberty = detected_inputs - self.get_liberty_pins()
-            if inputs_missing_in_liberty:
-                logger.warning(f"The circuit has gate nets that must be inputs "
-                               f"but are not declared as a pin in the liberty template: "
-                               f"{', '.join(sorted(inputs_missing_in_liberty))}")
-
-            # Add detected input pins.
-            diff = detected_inputs - set(self.input_pins)
-            if diff:
-                logger.info(f"Also include detected pins: {', '.join(sorted(diff))}")
-                self.input_pins.extend(diff)
-
-            # Find pins that are defined in the SPICE circuit but are not inputs nor power.
-            maybe_outputs = all_spice_pins - set(self.input_pins) - set(self.power_pins())
-            if maybe_outputs:
-                logger.info(f"Potential output pins: {', '.join(sorted(maybe_outputs))}")
-                self.output_pins.extend(maybe_outputs)
-
-        # Sanity check.
-        if len(self.input_pins) == 0:
-            abort("Cell has no input pins.")
-
-        # Sanity check.
-        if len(self.output_pins) == 0:
-            abort("Cell has no output pins.")
-
-        self.init_differential_inputs()
-
-        if self.lctime.args.analyze_cell_function:
-            # Derive boolean functions for the outputs from the netlist.
+    def recognize_cell_function(self):
+            """
+            Derive boolean functions for the outputs from the netlist.
+            """
             logger.info("Derive boolean functions for the outputs based on the netlist.")
 
             self.cell_type = analyze_boolean_functions(
@@ -845,6 +829,40 @@ class CellSetup:
             )
 
             merge_cell_types(self.cell_type_liberty, self.cell_type)
+
+    def run(self) -> Group:
+        """
+        Characterize the cell and create a populated 'cell' group data structure.
+        """
+        
+        logger.info("Cell: {}".format(self.cell_name))
+
+        self.init_workdir()
+        self.init_indices()
+        self.recognize_cell_type()
+        self.init_pins()
+        self.init_case_lookup_table()
+        self.load_netlist()
+        self.check_pins()
+        
+
+        # Detect input nets from the transistor netlist (if enabled).
+        if self.lctime.args.analyze_cell_function:
+            self.recognize_input_pins()
+            
+        # Sanity check.
+        if len(self.input_pins) == 0:
+            # TODO: could be valid for tie cells.
+            abort("Cell has no input pins.")
+
+        # Sanity check.
+        if len(self.output_pins) == 0:
+            abort("Cell has no output pins.")
+
+        self.init_differential_inputs()
+
+        if self.lctime.args.analyze_cell_function:
+            self.recognize_cell_function()
         else:
             # Skip functional abstraction and take the functions provided in the liberty file.
             # output_functions_symbolic = output_functions_user
@@ -852,7 +870,6 @@ class CellSetup:
 
 
         logger.info(f"Run characterization for {self.cell_name}")
-
 
         cell_conf = self.create_cell_config()
         
@@ -910,7 +927,7 @@ class CellSetup:
             are measured relative to the de-activating edge of the clock signal instead of the active clock edge.
             """
 
-            assert False, "Characterization of latches is not yet supported."
+            abort("Characterization of latches is not yet supported.")
         else:
             assert False, f"Unsupported cell type: {type(self.cell_type)}"
 
