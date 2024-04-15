@@ -498,8 +498,8 @@ class LcTime:
         self.f11_init_table_indices()
 
 
-        # Characterize cells in parallel.
         if self.args.jobs != 1:
+            # Characterize cells in parallel.
             new_cell_groups = joblib.Parallel(n_jobs=self.args.jobs, prefer='threads') \
                 (joblib.delayed(self.characterize_cell)(cell_name) for cell_name in self.cell_names)
         else:
