@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2019-2022 Thomas Kramer <code@tkramer.ch>
+# SPDX-FileCopyrightText: 2019-2024 Thomas Kramer <code@tkramer.ch>
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -190,6 +190,25 @@ class LcTime:
         library: Group = None
         new_library: Group = None # Library under construction.
         conf: CharacterizationConfig = None
+
+    def run(self):
+        logger = logging.getLogger(__name__)
+        logger.info("lctime main function")
+
+        self.f00_parse_args()
+        self.f01_init_logging()
+        self.f02_init_workdir()
+        self.f03_init_netlists()
+        self.f04_check_cell_names()
+        self.f05_load_liberty_template()
+        self.f06_check_delay_model()
+        self.f07_init_new_library()
+        self.f08_load_operating_conditions()
+        self.f09_init_include_statements()
+        self.f10_init_characterization_config()
+        self.f11_init_table_indices()
+        self.f12_characterize_library()
+        self.write_liberty()
 
     def f00_parse_args(self):
         parser = argparse.ArgumentParser(
@@ -480,24 +499,7 @@ class LcTime:
         if self.related_pin_transition is not None:
             logger.info(f"Related pin transition times [ns]: {self.related_pin_transition / 1e-9}")
 
-    def run(self):
-        logger = logging.getLogger(__name__)
-        logger.info("lctime main function")
-
-        self.f00_parse_args()
-        self.f01_init_logging()
-        self.f02_init_workdir()
-        self.f03_init_netlists()
-        self.f04_check_cell_names()
-        self.f05_load_liberty_template()
-        self.f06_check_delay_model()
-        self.f07_init_new_library()
-        self.f08_load_operating_conditions()
-        self.f09_init_include_statements()
-        self.f10_init_characterization_config()
-        self.f11_init_table_indices()
-
-
+    def f12_characterize_library(self):
         if self.args.jobs != 1:
             # Characterize cells in parallel.
             new_cell_groups = joblib.Parallel(n_jobs=self.args.jobs, prefer='threads') \
@@ -507,9 +509,8 @@ class LcTime:
             new_cell_groups = [self.characterize_cell(cell_name) for cell_name in self.cell_names]
 
         for new_cell_group in new_cell_groups:
-            self.new_library.groups.append(new_cell_group)
+            self.new_library.groups.append(new_cell_group)      
 
-        self.write_liberty()
 
     def write_liberty(self):
         """
