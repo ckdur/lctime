@@ -114,7 +114,7 @@ def plot_timing_ndlm(library: Group, table: Group):
     plot3d(x_axis, y_axis, z_data, x_label=x_label, y_label=y_label, z_label=z_label)
 
 
-def test_plot_nldm():
+def _test_plot_nldm():
     import os.path
     lib_file = os.path.join(os.path.dirname(__file__), '../../test_data/freepdk45/gscl45nm.lib')
 

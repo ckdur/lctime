@@ -8,7 +8,7 @@ set -e
 
 if [ "$(which pytest)" ]; then
   echo run unit tests...
-  pytest src/*
+  pytest $(find src/ -name *.py)
 else
   echo "pytest not found, skipping unit tests"
 fi
