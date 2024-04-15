@@ -1,6 +1,4 @@
-# Copyright (c) 2021 Thomas Kramer.
-# SPDX-FileCopyrightText: 2022 Thomas Kramer <code@tkramer.ch>
-#
+# SPDX-FileCopyrightText: 2021-2022 Thomas Kramer <code@tkramer.ch>
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 from typing import Dict, List, Set

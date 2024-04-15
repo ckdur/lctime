@@ -1,5 +1,4 @@
-# Copyright (c) 2019 Thomas Kramer.
-# SPDX-FileCopyrightText: 2022 Thomas Kramer <code@tkramer.ch>
+# SPDX-FileCopyrightText: 2019-2023 Thomas Kramer <code@tkramer.ch>
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
