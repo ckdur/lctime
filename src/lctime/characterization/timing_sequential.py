@@ -149,8 +149,8 @@ def find_minimum_clock_pulse_width(
     supply_voltage = cfg.supply_voltage
 
     # SPICE include files.
-    includes = [f".INCLUDE {cell_config.spice_netlist_file}"]
-    includes += cfg.setup_statements
+    includes = cfg.setup_statements
+    includes += [f".INCLUDE {cell_config.spice_sim_file}"]
 
     # Load capacitance statements.
     if output_load_capacitances is None:
@@ -962,8 +962,8 @@ def measure_flip_flop_setup_hold(
     logger.debug(f"Output load capacitance: {output_load_capacitances} [F]")
 
     # SPICE include files.
-    includes = [f".INCLUDE {cell_conf.spice_sim_file}"]
-    includes += cfg.setup_statements
+    includes = cfg.setup_statements
+    includes += [f".INCLUDE {cell_conf.spice_sim_file}"]
 
     vdd = cfg.supply_voltage
 
@@ -1454,8 +1454,8 @@ def measure_clock_to_output_delay(
     logger.debug(f"Output load capacitance: {output_load_capacitances} [F]")
 
     # SPICE include files.
-    includes = [f".INCLUDE {cell_conf.spice_sim_file}"]
-    includes += cfg.setup_statements
+    includes = cfg.setup_statements
+    includes += [f".INCLUDE {cell_conf.spice_sim_file}"]
 
     vdd = cfg.supply_voltage
     
