@@ -87,7 +87,7 @@ def characterize_comb_cell(
         initial_node_voltages = initial_node_voltages.copy()
 
     # Create a list of include files.
-    setup_statements = cfg.setup_statements + [f".include {cell_conf.spice_netlist_file}"]
+    setup_statements = cfg.setup_statements + [f".include {cell_conf.spice_sim_file}"]
 
     # Get all input nets that are not toggled during a simulation run.
     static_input_nets = [i for i in input_pins_non_inverted if i != related_pin]

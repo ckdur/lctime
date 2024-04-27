@@ -59,6 +59,11 @@ class CellConfig:
         Path to SPICE netlist containing the subcircuit of the cell.
         """
 
+        self.spice_sim_file: str = None
+        """
+        Path to SPICE netlist containing the subcircuit of the cell, for simulation.
+        """
+
         self.spice_ports: List[str] = None
         """
         Ordering of pins of the spice subcircuit that describes this cell.

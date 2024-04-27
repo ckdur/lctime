@@ -962,7 +962,7 @@ def measure_flip_flop_setup_hold(
     logger.debug(f"Output load capacitance: {output_load_capacitances} [F]")
 
     # SPICE include files.
-    includes = [f".INCLUDE {cell_conf.spice_netlist_file}"]
+    includes = [f".INCLUDE {cell_conf.spice_sim_file}"]
     includes += cfg.setup_statements
 
     vdd = cfg.supply_voltage
@@ -1454,7 +1454,7 @@ def measure_clock_to_output_delay(
     logger.debug(f"Output load capacitance: {output_load_capacitances} [F]")
 
     # SPICE include files.
-    includes = [f".INCLUDE {cell_conf.spice_netlist_file}"]
+    includes = [f".INCLUDE {cell_conf.spice_sim_file}"]
     includes += cfg.setup_statements
 
     vdd = cfg.supply_voltage

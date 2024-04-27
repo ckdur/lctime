@@ -63,7 +63,7 @@ def characterize_input_capacitances(
     logger.debug("Vdd: {} V".format(vdd))
 
     # Create a list of include files.
-    setup_statements = cfg.setup_statements + [f".include {cell_conf.spice_netlist_file}"]
+    setup_statements = cfg.setup_statements + [f".include {cell_conf.spice_sim_file}"]
 
     # Load include files.
     for setup in setup_statements:

@@ -201,6 +201,11 @@ def main():
     parser.add_argument('--spice', required=True, metavar='SPICE', type=str,
                         action='append',
                         nargs='+',
+                        help='SPICE netlist (as LVS) containing a subcircuit with the same name as the cell.')
+
+    parser.add_argument('--netlist', required=True, metavar='NETLIST', type=str,
+                        action='append',
+                        nargs='+',
                         help='SPICE netlist containing a subcircuit with the same name as the cell.')
 
     parser.add_argument('-I', '--include', required=False, action='append', metavar='SPICE_INCLUDE', type=str,
@@ -278,12 +283,18 @@ def main():
     # Get list of cell names to be characterized.
     cell_names = [n for names in args.cell for n in names]  # Flatten the nested list.
 
-    # Get list of user-provided netlist files.
+    # Get list of user-provided netlist files (used as LVS).
     netlist_files = [n for names in args.spice for n in names]  # Flatten the nested list.
+
+    # Get list of user-provided netlist files.
+    sim_netlist_files = [n for names in args.netlist for n in names]  # Flatten the nested list.
+    if len(sim_netlist_files) != len(netlist_files):
+        sim_netlist_files = netlist_files
 
     # Generate a lookup-table which tells for each cell name which netlist file to use.
     netlist_file_table: Dict[str, str] = dict()
-    for netlist_file in netlist_files:
+    sim_file_table: Dict[str, str] = dict()
+    for netlist_file, sim_file in zip(netlist_files, sim_netlist_files):
         logger.info("Load SPICE netlist: {}".format(netlist_file))
         parser = SpiceParser(path=netlist_file)
         for sub in parser.subcircuits:
@@ -292,6 +303,7 @@ def main():
                 abort(
                     f"Sub-circuit '{sub.name}' is defined in multiple netlists: {netlist_file_table[sub.name]}, {netlist_file}")
             netlist_file_table[sub.name] = netlist_file
+            sim_file_table[sub.name] = sim_file
 
     # Test if all cell names can be found in the netlist files.
     cell_names_not_found = set(cell_names) - netlist_file_table.keys()
@@ -694,6 +706,7 @@ def main():
         cell_conf.ground_net = gnd_pin
         cell_conf.supply_net = vdd_pin
         cell_conf.workingdir = cell_workingdir
+        cell_conf.spice_sim_file = sim_file_table[cell_name]
         cell_conf.spice_netlist_file = netlist_file_table[cell_name]
         cell_conf.spice_ports = spice_ports
 
