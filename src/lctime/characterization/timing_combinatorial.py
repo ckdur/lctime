@@ -291,7 +291,7 @@ def characterize_comb_cell(
                 # Check if signals are already stabilized after one `period`.
                 # assert abs(input_voltage[0]) < 0.01, "Input signal not yet stable at start."
                 # assert abs(1 - input_voltage[-1]) < 0.01, "Input signal not yet stable at end."
-                if input_rising:
+                if output_rising:
                     output_threshold = cfg.trip_points.output_threshold_rise
                 else:
                     output_threshold = cfg.trip_points.output_threshold_fall
