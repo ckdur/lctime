@@ -10,7 +10,7 @@ This Python package comes with a some stand-alone command-line tools:
 
 * Most notably `lctime` for *recognition* and *characterization* of combinational and sequential cells.
 * `sp2bool`: Recognition ('reverse engineering') of transistor networks. This is intended for analyzis and debugging.
-* `libertyviz`: Visualization of NDLM tables.
+* `libertyviz`: Visualization of NLDM tables.
 
 ## Getting started
 

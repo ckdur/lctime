@@ -18,10 +18,10 @@ logger = logging.getLogger(__name__)
 
 def main_plot_timing():
     """
-    Command-line tool to visualize NDLM timing models in liberty files.
+    Command-line tool to visualize NLDM timing models in liberty files.
     :return:
     """
-    parser = argparse.ArgumentParser(description='Visualize NDLM timing arrays in liberty files.')
+    parser = argparse.ArgumentParser(description='Visualize NLDM timing arrays in liberty files.')
     parser.add_argument('-l', '--liberty', required=True, metavar='LIBERTY', type=str, help='Liberty file.')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode.')
     parser.add_argument('--cell', required=True, metavar='CELL_NAME', type=str, help='Cell name.')
@@ -60,7 +60,7 @@ def main_plot_timing():
                                        timing_type=args.timing_type,
                                        table_name=args.table)
 
-    plot_timing_ndlm(library, timing_table)
+    plot_timing_nldm(library, timing_table)
 
 
 def plot3d(x_axis: np.ndarray, y_axis: np.ndarray, z_data: np.ndarray,
@@ -89,9 +89,9 @@ def plot3d(x_axis: np.ndarray, y_axis: np.ndarray, z_data: np.ndarray,
     plt.show()
 
 
-def plot_timing_ndlm(library: Group, table: Group):
+def plot_timing_nldm(library: Group, table: Group):
     """
-    Plot a NDLM timing table.
+    Plot a NLDM timing table.
     :param library:
     :param table:
     :return:
@@ -127,4 +127,4 @@ def _test_plot_nldm():
 
     timing_table = select_timing_table(pin, 'A', 'rise_transition')
 
-    plot_timing_ndlm(library, timing_table)
+    plot_timing_nldm(library, timing_table)

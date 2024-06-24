@@ -38,7 +38,7 @@ def characterize_comb_cell(
 
 ) -> Dict[str, np.ndarray]:
     """
-    Calculate the NDLM timing table of a cell for a given timing arc.
+    Calculate the NLDM timing table of a cell for a given timing arc.
     :param constant_inputs: A truth-assignment for input pins that are static. Used for tri-state enable pins.
     :param cell_conf: Parameters and configuration for the characterization.
     :param input_net_transition: Transition times of input signals in seconds.
@@ -49,7 +49,7 @@ def characterize_comb_cell(
     :param output_functions: A dict mapping output pin names to corresponding boolean functions.
     :param initial_conditions: Initial node voltages as a dict.
 
-    :return: Returns the NDLM timing tables wrapped in a dict:
+    :return: Returns the NLDM timing tables wrapped in a dict:
     {'cell_rise': 2d-np.ndarray, 'cell_fall': 2d-np.ndarray, ... }
     """
 
