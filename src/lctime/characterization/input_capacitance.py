@@ -72,8 +72,8 @@ def characterize_input_capacitances(
         logger.debug(f"Setup statement: {setup}")
     setup_statements_string = "\n".join(setup_statements)
 
-    # Add output load capacitance. Right now this is 0F.
-    output_load_statements = "\n".join((f"Cload_{p} {p} GND 0" for p in output_pins))
+    # Add output load capacitance. Right now this is 1fF.
+    output_load_statements = "\n".join((f"Cload_{p} {p} GND 1f" for p in output_pins))
 
     # Choose a maximum time to run the simulation.
     time_max = cfg.time_step * 1e6
