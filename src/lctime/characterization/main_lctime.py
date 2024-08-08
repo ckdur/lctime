@@ -1011,7 +1011,7 @@ def merge_cell_types(
     # Merge deduced output functions with the ones read from the liberty file and perform consistency check.
     for output_symbol, output in source_cell_type.outputs.items():
         output_name = str(output_symbol)
-        logger.info(f"User supplied output function: {output_name} = {output_name}")
+        logger.info(f"User supplied output function: {output_name} = {output.function}")
 
         assert output_symbol in target_cell_type.outputs, f"No function has been deduced for output pin '{output_name}'."
         # Consistency check:
