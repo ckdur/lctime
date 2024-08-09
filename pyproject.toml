@@ -27,7 +27,7 @@ classifiers = [
 ]
 
 dependencies = [
-  'klayout>=0.27.3', # GPLv3
+  'klayout>=0.29.0', # GPLv3
   'numpy>=1.0',  # BSD
   'sympy>=1.6',  # BSD
   'matplotlib>=3.0',
