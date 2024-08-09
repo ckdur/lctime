@@ -187,6 +187,11 @@ def simulate_cell(
     sim_netlist = f"""* librecell {__name__}
 .title {simulation_title}
 
+.control
+* Exit on error with return value 1
+pre_set strict_errorhandling
+.endc
+
 .option TEMP={temperature}
 
 {setup_statements_string}

@@ -169,6 +169,11 @@ def characterize_input_capacitances(
             sim_netlist = f"""* librecell {__name__}
 .title Measure input capacitance of pin {active_pin}
 
+.control
+* Exit on error with return value 1
+pre_set strict_errorhandling
+.endc
+
 .option TEMP={cfg.temperature}
 
 {setup_statements_string}
