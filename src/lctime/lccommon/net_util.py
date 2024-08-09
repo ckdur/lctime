@@ -160,6 +160,9 @@ def extract_transistors(circuit: db.Circuit, force_lowercase: bool = False) -> T
     Returns a list of `Transistor`s and a list of the pin names including power pins.
     (List[Transistors], pin_names)
     """
+    f = lambda s: s
+    if force_lowercase:
+        f = lambda s: s.lower()
 
     if circuit is None:
         all_circuits = [c.name for c in netlist.each_circuit()]
