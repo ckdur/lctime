@@ -761,12 +761,17 @@ class CellSetup:
         logger.info('Load netlist: %s', self.netlist_file_path())
         try:
             transistors_abstract, cell_pins = load_transistor_netlist(self.netlist_file_path(), self.cell_name)
+            logger.debug(f"Pins of cell '{self.cell_name}': {cell_pins}")
         except Exception as e:
             abort(str(e))
 
         if len(transistors_abstract) == 0:
             msg = "No transistors found in cell. (The netlist must be flattened, sub-circuits are not resolved)"
-            abort(msg)
+            if self.lctime.args.analyze_cell_function:
+                # Transistors are needed for cell recognition only.
+                abort(msg)
+            else:
+                logger.info(f"{msg}. Characterization might work as well but recognition won't work.")
 
         self.cell_pins = [self.fix_case(p) for p in cell_pins]
         for t in transistors_abstract:
@@ -1268,6 +1273,6 @@ def _transistors2multigraph(transistors) -> nx.MultiGraph:
     G = nx.MultiGraph()
     for t in transistors:
         G.add_edge(t.source_net, t.drain_net, (t.gate_net, t.channel_type))
-    assert nx.is_connected(G)
+    assert len(G) == 0 or nx.is_connected(G)
     return G
 

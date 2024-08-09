@@ -161,17 +161,32 @@ def extract_transistors(circuit: db.Circuit, force_lowercase: bool = False) -> T
     (List[Transistors], pin_names)
     """
 
-    f = lambda s: s
-    if force_lowercase:
-        f = lambda s: s.lower()
-
     if circuit is None:
         all_circuits = [c.name for c in netlist.each_circuit()]
         logger.error("No such circuit: {}".format(circuit_name))
         logger.info(f"Circuits in netlist: {all_circuits}")
         raise Exception("No such circuit: {}".format(circuit_name))
 
-    pins = [f(p.name()) for p in circuit.each_pin()]
+    # Get pin names.
+    pins = [p.name() for p in circuit.each_pin()]
+
+    # Workaround klayout issue in version 0.28.?.
+    # TODO: remove this somewhen.
+    # Split merged pin names. KLayout merges unconnected pins into a single pin???
+    # If pins are not connected inside the circuit we get a pin name like "A,Y,VDD,VSS".
+    recommend_klayout_ugprade = False
+    for pin in pins:
+        if "," in pin:
+            logger.warning(f"Pin name looks like it contains a bug from old KLayout versions: {pin}")
+            recommend_klayout_ugprade = True
+    if recommend_klayout_ugprade:
+        logger.warning("Consider upgrading the klayout package to 0.29 or later.")
+        # This is the workaround:
+        pins = [p for pin_names in pins for p in pin_names.split(",") ]
+
+    # Convert to lowercase if necessary.
+    if force_lowercase:
+        pins = [p.lower() for p in pins]
 
     def get_channel_type(s: str):
         """Determine the channel type of transistor from the model name.
