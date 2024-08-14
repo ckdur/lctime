@@ -145,6 +145,13 @@ class PieceWiseLinear:
             for time, voltage in zip(self.x, self.y)
         ))
         return pwl_string
+    
+    def __str__(self):
+        pwl_string = ' '.join((
+            f'{time:0.3e}s {voltage:0.3e}V'
+            for time, voltage in zip(self.x, self.y)
+        ))
+        return pwl_string
 
 
 class StepWave(PieceWiseLinear):

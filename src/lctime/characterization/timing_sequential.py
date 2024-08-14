@@ -194,7 +194,7 @@ def find_minimum_clock_pulse_width(
             clock_pulse1 = clock_pulse_shape.delayed(t_pulse1)
 
             # Create delayed second pulse.
-            time_between_pulses = 4 * pulse_width + 1e-9
+            time_between_pulses = 4 * clock_pulse_width + 1e-9
             t_pulse2 = t_pulse1 + time_between_pulses
             clock_pulse2 = clock_pulse_shape.delayed(t_pulse2)
 
@@ -210,7 +210,7 @@ def find_minimum_clock_pulse_width(
             # Create input signal that first resets the flip-flop to a certain state at the first clock pulse
             # and then switches to the other rail such that the flip-flop changes state with the second clock pulse.
 
-            input_toggle_time = setup_time + time_between_pulses / 2
+            input_toggle_time = setup_time + clock_pulse_width + max(time_between_pulses - clock_pulse_width, 0) / 2
             input_signal = StepWave(
                 start_time=input_toggle_time,
                 polarity=rising_data_edge,
@@ -243,7 +243,8 @@ def find_minimum_clock_pulse_width(
             # Simulation script file path.
             file_name = f"lctime_min_clk_pulse_width_" \
                         f"{'pos_pulse' if clock_pulse_polarity else 'neg_pulse'}_" \
-                        f"{'data_rising' if rising_data_edge else 'data_falling'}"
+                        f"{'data_rising' if rising_data_edge else 'data_falling'}" \
+                        f"{clock_pulse_width}"
             sim_file = os.path.join(workingdir, f"{file_name}.sp")
 
             # Output file for simulation results.
