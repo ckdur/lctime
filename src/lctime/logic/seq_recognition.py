@@ -88,14 +88,14 @@ def test_find_boolean_isomorphism():
     f = (a & b) | c
     g = (x & y) | z
     mapping = find_boolean_isomorphism(f, g)
-    assert mapping == {a: x, b: y, c: z}
+    assert mapping == {a: x, b: y, c: z} or mapping == {a: y, b: x, c: z}
 
     # MUX
     f = (a & c) | (b & ~c)
     g = ~((~x & z) | (~y & ~z))
     mapping = find_boolean_isomorphism(f, g)
     print(mapping)
-    assert mapping == {a: x, b: y, c: z}
+    assert mapping == {a: x, b: y, c: z} 
 
 
 class LatchExtractor:
