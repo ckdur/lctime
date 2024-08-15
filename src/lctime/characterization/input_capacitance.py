@@ -73,7 +73,7 @@ def characterize_input_capacitances(
     setup_statements_string = "\n".join(setup_statements)
 
     # Add output load capacitance. Right now this is 1fF.
-    output_load_statements = "\n".join((f"Cload_{p} {p} GND 1f" for p in output_pins))
+    output_load_statements = "\n".join((f"Cload_{p} {p} {cell_conf.ground_net} 1f" for p in output_pins))
 
     # Choose a maximum time to run the simulation.
     time_max = cfg.time_step * 1e6
@@ -87,6 +87,18 @@ def characterize_input_capacitances(
     logger.debug("Reduction function for summarizing multiple timing arcs: {}".format(reduction_function.__name__))
 
     logger.debug("Measuring input capacitance.")
+
+    # If the ground net is not called GND, then it must be connected to GND or 0.
+    # This seems to be a must for SPICE simulators.
+    # See: https://codeberg.org/librecell/lctime/issues/12#issuecomment-2173526
+    if cell_conf.ground_net not in ["GND", "gnd", "0"]:
+        logger.debug(f"Connect ground net `{cell_conf.ground_net}` to simulators ground `0`.")
+        ground_connection = f"* Connect ground net to GND\n" \
+        f"vgnd {cell_conf.ground_net} 0 0"
+    else:
+        # Using standard name for ground net.
+        ground_connection = ""
+
 
     # Generate all possible input combinations for the static input pins.
     static_input_nets = [i for i in input_pins_non_inverted if i != active_pin]
@@ -177,6 +189,8 @@ pre_set strict_errorhandling
 .option TEMP={cfg.temperature}
 
 {setup_statements_string}
+
+{ground_connection}
 
 Xcircuit_under_test {" ".join(ports)} {cell_conf.cell_name}
 
