@@ -104,10 +104,11 @@ def simulate_cell(
     # This seems to be a must for SPICE simulators.
     # See: https://codeberg.org/librecell/lctime/issues/12#issuecomment-2173526
     if ground_net not in ["GND", "gnd", "0"]:
-        logger.debug(f"Connect ground net `{cell_conf.ground_net}` to simulators ground `0`.")
+        logger.debug(f"Connect ground net `{ground_net}` to simulators ground `0`.")
         ground_connection = f"* Connect ground net to GND\n" \
         f"vgnd {ground_net} 0 0"
     else:
+        # Using standard name for ground net.
         ground_connection = ""
     
     input_voltages_static = dict()
