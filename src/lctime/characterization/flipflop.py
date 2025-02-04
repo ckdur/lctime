@@ -29,7 +29,7 @@ def characterize_flip_flop_output(
         abort("Need to specify 'related-pin-transition' for the clock pin.")
 
     # Create or update the 'ff' group.
-    ff_group = new_cell_group.get_groups('ff')
+    ff_group = new_cell_group.get_groups('ff')[0]
     if not ff_group:
         ff_group = Group('ff')
         new_cell_group.groups.append(ff_group)
@@ -314,7 +314,6 @@ def characterize_flip_flop_output(
             (setup_time, hold_time) = settings[conf.timing_corner]
             
             clock_cycle_hint = clock_pulse_width_guess * 2 # Choose a big-enough clock pulse such that data is sampled for sure.
-        
             data_transition_time = 1e-13 # TODO
             
             delay, slew_time = seq.measure_clock_to_output_delay(
