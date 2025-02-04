@@ -143,77 +143,96 @@ Vsrc_vdd VDD GND PWL(0 0 1ms 0V 2ms 1V)
     ns.cmd('quit')
 
 
-class NgSpiceAsync:
-    """
-    Asynchronous interface to ngspice as a subprocess.
-    """
-
-    def __init__(self, logger: logging.Logger = None):
-        if logger is None:
-            logger = logging.getLogger(__name__)
-        self.logger = logger
-        self.ngspice_cmd = "ngspice"
-        self.ngspice_args = ['-p']
-        "Run ngspice in interactive pipe mode."
-
-        self.proc = None
-        "ngspice process handle."
-
-    async def start(self):
-        self.proc = await asyncio.create_subprocess_exec(
-            self.ngspice_cmd,
-            *self.ngspice_args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-    async def cmd(self, cmd: bytes):
-        self.logger.debug(f"Run cmd: {cmd}")
-        print(f"Run cmd: {cmd}")
-        # cmd = cmd.encode('utf-8')
-        stdout, stderr = await self.proc.communicate(input=cmd)
-        self.logger.debug(f"stdout: {stdout}")
-        print(f"stdout: {stdout}")
-        self.logger.debug(f"stderr: {stderr}")
-        print(f"stderr: {stderr}")
-
-        print(f"return code: {self.proc.returncode}")
-
-
-def test_async_interactive_subprocess():
-    async def run():
-        ns = NgSpiceAsync()
-        await ns.start()
-        await ns.cmd(b"help")
-        await ns.cmd(b"help")
-        await ns.cmd(b"quit")
-
-    asyncio.run(run())
-
-
-def test_async_interactive_subprocess_raw():
-    import asyncio
-
-    async def run():
-        cmd = 'ngspice -p'
-        proc = await asyncio.create_subprocess_exec(
-            'ngspice',
-            '-p',
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-
-        stdout, stderr = await proc.communicate(input=b"help\n")
-        print(stdout)
-        print(stderr)
-        stdout, stderr = await proc.communicate(input=b"quit\n")
-
-        print(f'[{cmd!r} exited with {proc.returncode}]')
-        if stdout:
-            print(f'[stdout]\n{stdout.decode()}')
-        if stderr:
-            print(f'[stderr]\n{stderr.decode()}')
-
-    asyncio.run(run())
+#class NgSpiceAsync:
+#    """
+#    Asynchronous interface to ngspice as a subprocess.
+#    """
+#
+#    def __init__(self, logger: logging.Logger = None):
+#        if logger is None:
+#            logger = logging.getLogger(__name__)
+#        self.logger = logger
+#        self.ngspice_cmd = "ngspice"
+#        self.ngspice_args = ['-p']
+#        "Run ngspice in interactive pipe mode."
+#
+#        self.proc = None
+#        "ngspice process handle."
+#
+#    async def start(self):
+#        self.proc = await asyncio.create_subprocess_exec(
+#            self.ngspice_cmd,
+#            *self.ngspice_args,
+#            stdin=asyncio.subprocess.PIPE,
+#            stdout=asyncio.subprocess.PIPE,
+#            stderr=asyncio.subprocess.PIPE,
+#        )
+#
+#    async def cmd(self, cmd: bytes):
+#        if not cmd.endswith(b"\n"):
+#            cmd += b"\n"
+#        self.logger.debug(f"Run cmd: {cmd}")
+#        print(f"Run cmd: {cmd}")
+#        # cmd = cmd.encode('utf-8')
+#        stdout, stderr = await self.proc.communicate(input=cmd)
+#        self.logger.debug(f"stdout: {stdout}")
+#        print(f"stdout: {stdout}")
+#        self.logger.debug(f"stderr: {stderr}")
+#        print(f"stderr: {stderr}")
+#
+#        print(f"return code: {self.proc.returncode}")
+#
+#
+#def test_async_interactive_subprocess():
+#
+#    async def run():
+#        
+#        ns = NgSpiceAsync()
+#        try:
+#            async with asyncio.timeout(1):
+#                await ns.start()
+#                await ns.cmd(b"help")
+#                await ns.cmd(b"help")
+#                await ns.cmd(b"quit")
+#        except Exception as e:
+#            if ns.proc:
+#                ns.proc.kill()
+#            raise e
+#
+#    asyncio.run(run())
+#
+#
+#def test_async_interactive_subprocess_raw():
+#
+#    async def run():
+#        
+#        proc = None
+#        try:
+#            async with asyncio.timeout(1):
+#            
+#                cmd = 'ngspice -p'
+#                proc = await asyncio.create_subprocess_exec(
+#                    'ngspice',
+#                    '-p',
+#                    stdin=asyncio.subprocess.PIPE,
+#                    stdout=asyncio.subprocess.PIPE,
+#                    stderr=asyncio.subprocess.PIPE,
+#                )
+#
+#                stdout, stderr = await proc.communicate(input=b"help\n")
+#                print(stdout)
+#                print(stderr)
+#                stdout, stderr = await proc.communicate(input=b"quit\n")
+#
+#                print(f'[{cmd!r} exited with {proc.returncode}]')
+#                if stdout:
+#                    print(f'[stdout]\n{stdout.decode()}')
+#                if stderr:
+#                    print(f'[stderr]\n{stderr.decode()}')
+#        except Exception as e:
+#            if proc:
+#                proc.kill()
+#            raise e
+#
+#    asyncio.run(run())
+#
