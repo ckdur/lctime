@@ -1180,6 +1180,14 @@ def characterize_combinational_output(
                 for name, comb_output in cell_type.outputs.items()
             }
 
+            f = cell_type.outputs[output_pin_symbol].function
+
+            # Find assignments of the other input pins such that
+            # the output is positive unate / negative unate.
+            pos_unate_values, neg_unate_values = _find_unateness_conditions(f, related_pin)
+            logger.info(f"{related_pin} is positive unate when {pos_unate_values}")
+            logger.info(f"{related_pin} is negative unate when {neg_unate_values}")
+
             # Get timing sense of this arc.
             timing_sense = str(is_unate_in_xi(output_functions[output_pin_name], related_pin).name).lower()
             logger.info("Timing sense: {}".format(timing_sense))
@@ -1276,3 +1284,30 @@ def _transistors2multigraph(transistors) -> nx.MultiGraph:
     assert len(G) == 0 or nx.is_connected(G)
     return G
 
+def _find_unateness_conditions(f, input_variable: sympy.Symbol):
+    """
+    Find two sets of variable assignments `p` and `n` such 
+    that `f` is positive unate under the assigmnent `p` and negative unate
+    under the assigment `n`.
+
+    Returns: (p, n)
+    """
+
+    def greater_or_equal(a, b):
+        """ Boolean greater-or-equal """
+        return (a & ~b) | (a == b)
+
+    def less_or_equal(a, b):
+        """ Boolean less-or-equal """
+        return greater_or_equal(b, a)
+    
+    # A function `f` is positive unate iff: f(..., x_i = 1, ...) >= f(..., x_i = 0, ...)
+    # A function `f` is negative unate iff: f(..., x_i = 1, ...) <= f(..., x_i = 0, ...)
+
+    f0 = f.subs({input_variable: False})         
+    f1 = f.subs({input_variable: True})       
+    
+    p = list(satisfiable(greater_or_equal(f1, f0), all_models=True))
+    n = list(satisfiable(less_or_equal(f1, f0), all_models=True))
+
+    return p, n

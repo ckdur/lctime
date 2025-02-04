@@ -10,7 +10,7 @@ steps:
             - event: manual
             - event: push
         commands:
-            - apt update
+            #- apt update
             - python3 --version
             - pip3 --version
             - apt install -y cython3 ngspice 

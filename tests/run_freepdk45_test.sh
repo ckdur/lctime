@@ -45,5 +45,14 @@ lctime --liberty template.lib \
     --output-loads "0.05, 1.6" \
     --slew-times "0.1, 3.2" \
     --output $OUT_DIR/and2x1.lib
+    
+lctime --liberty template.lib \
+    --analyze-cell-function \
+    --include gpdk45nm.m \
+    --spice XOR2X1.pex.netlist \
+    --cell XOR2X1 \
+    --output-loads "0.05, 1.6" \
+    --slew-times "0.1, 3.2" \
+    --output $OUT_DIR/xor2x1.lib
 
 echo TEST OK

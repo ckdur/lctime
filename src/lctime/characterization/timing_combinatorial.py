@@ -90,7 +90,8 @@ def characterize_comb_cell(
     setup_statements = cfg.setup_statements + [f".include {cell_conf.spice_netlist_file}"]
 
     # Get all input nets that are not toggled during a simulation run.
-    static_input_nets = [i for i in input_pins_non_inverted if i != related_pin]
+    static_input_nets = [i for i in input_pins_non_inverted if i != related_pin and i not in constant_inputs]
+    print("static input nets:", static_input_nets)
     # Get a list of all input combinations that will be used for measuring conditional timing arcs.
     num_inputs = len(static_input_nets)
     static_inputs = list(product(*([[0, 1]] * num_inputs)))

@@ -22,7 +22,7 @@ lctime --liberty invx1_template.lib \
 
 
 # Here the template liberty file does NOT contain a cell specification.
-# With the --analize-cell-function flag the cell specification will be infered from the netlist.
+# With the --analyze-cell-function flag the cell specification will be infered from the netlist.
 lctime --liberty template.lib \
     --analyze-cell-function \
     --include gpdk45nm.m \
@@ -31,3 +31,12 @@ lctime --liberty template.lib \
     --output-loads "0.05, 0.1, 0.2, 0.4, 0.8, 1.6" \
     --slew-times "0.1, 0.2, 0.4, 0.8, 1.6, 3.2" \
     --output and2x1.lib
+
+lctime --liberty template.lib \
+    --analyze-cell-function \
+    --include gpdk45nm.m \
+    --spice $NETLIST_DIR/XOR2X1.pex.netlist \
+    --cell XOR2X1 \
+    --output-loads "0.05, 0.1" \
+    --slew-times "0.1, 0.2" \
+    --output xor2x1.lib
