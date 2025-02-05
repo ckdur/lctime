@@ -1188,6 +1188,8 @@ def characterize_combinational_output(
             logger.info(f"{related_pin} is positive unate when {pos_unate_values}")
             logger.info(f"{related_pin} is negative unate when {neg_unate_values}")
 
+            print(pos_unate_values, neg_unate_values)
+
             # Get timing sense of this arc.
             timing_sense = str(is_unate_in_xi(output_functions[output_pin_name], related_pin).name).lower()
             logger.info("Timing sense: {}".format(timing_sense))

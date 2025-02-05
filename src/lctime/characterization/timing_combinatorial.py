@@ -35,6 +35,7 @@ def characterize_comb_cell(
 
         constant_inputs: Dict[str, bool] = dict(),
         initial_node_voltages: Dict[str, float] = None,
+        static_input_patterns: Optional[List[Dict[str, bool]]] = None
 
 ) -> Dict[str, np.ndarray]:
     """
@@ -48,6 +49,7 @@ def characterize_comb_cell(
     :param related_pin: The input pin of the timing arc.
     :param output_functions: A dict mapping output pin names to corresponding boolean functions.
     :param initial_conditions: Initial node voltages as a dict.
+    :param static_input_patterns: Use this assignments of the static input pins for characterization. Characterize for each assignment. If this is not supplied, characterization is run for all combinations.
 
     :return: Returns the NLDM timing tables wrapped in a dict:
     {'cell_rise': 2d-np.ndarray, 'cell_fall': 2d-np.ndarray, ... }
@@ -92,10 +94,34 @@ def characterize_comb_cell(
     # Get all input nets that are not toggled during a simulation run.
     static_input_nets = [i for i in input_pins_non_inverted if i != related_pin and i not in constant_inputs]
     print("static input nets:", static_input_nets)
-    # Get a list of all input combinations that will be used for measuring conditional timing arcs.
-    num_inputs = len(static_input_nets)
-    static_inputs = list(product(*([[0, 1]] * num_inputs)))
 
+    if static_input_patterns is None:
+        static_input_patterns = [{}] # Add a pattern which does not constrain any input and therefore leads to all possible combinations.
+    else:
+        # Sanity test on input.
+        assert isinstance(static_input_patterns, List)
+        for pat in static_input_patterns:
+            for var in pat.keys():
+                assert var in static_input_nets, f"input name in static_input_patterns is not in the list of static inputs: {var}"
+
+    # Get a list of all input combinations that will be used for measuring conditional timing arcs.
+    # Generate all possible input combinations at static inputs.
+    static_inputs = []
+    for pattern in static_input_patterns:
+        assert isinstance(pattern, Dict)
+
+        possible_assignments = [] # List of possible assignemnts for each static input.
+        # For each static input, get the possible assignments allowed by this pattern.
+        for i in static_input_nets:
+            possible_assignment = [0, 1] # If the pattern does not specify an assignment, both 0 and 1 are possible.
+            if i in pattern:
+                possible_assignment = [1 if pattern[i] == True else 0]
+            possible_assignments.append(possible_assignment)
+
+        static_inputs.extend(
+            list(product(*possible_assignments))
+        )
+        
     # Get boolean function of output pin.
     assert output_pin in output_functions, \
         "Boolean function not defined for output pin '{}'".format(output_pin)
