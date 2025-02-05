@@ -6,6 +6,8 @@
 from itertools import product
 from enum import Enum
 import inspect
+import sympy
+from typing import *
 
 
 class Unate(Enum):
@@ -80,3 +82,49 @@ def test_is_unate():
     assert is_unate_in_xi(NAND, 'b') == Unate.NEGATIVE_UNATE
 
     assert is_unate_in_xi(XOR, 'a') == Unate.NON_UNATE
+    
+def find_unateness_conditions(f: sympy.Expr, input_variable: sympy.Symbol) -> Tuple[Dict, Dict]:
+    """
+    Find two sets of variable assignments `p` and `n` such 
+    that `f` is positive unate under the assigmnent `p` and negative unate
+    under the assigment `n`.
+
+    Returns: (p, n)
+    """
+
+    def greater_or_equal(a, b):
+        """ Boolean greater-or-equal """
+        return (a & ~b) | (a == b)
+
+    def less_or_equal(a, b):
+        """ Boolean less-or-equal """
+        return greater_or_equal(b, a)
+    
+    # A function `f` is positive unate iff: f(..., x_i = 1, ...) >= f(..., x_i = 0, ...)
+    # A function `f` is negative unate iff: f(..., x_i = 1, ...) <= f(..., x_i = 0, ...)
+
+    f0 = f.subs({input_variable: False})         
+    f1 = f.subs({input_variable: True})       
+    
+    p = list(sympy.satisfiable(greater_or_equal(f1, f0), all_models=True))
+    n = list(sympy.satisfiable(less_or_equal(f1, f0), all_models=True))
+
+    return p, n
+
+def test_find_unateness_conditions():
+
+    a, b, c = sympy.symbols('a b c')
+    f = a ^ b ^ c
+
+    p, n = find_unateness_conditions(f, a)
+    assert len(p) > 0
+    assert len(n) > 0
+
+    for cond in p:
+        f_ = f.subs(cond)
+        assert bool(f_.subs({a: True})) >= bool(f_.subs({a: False})), "not positive unate"
+        
+    for cond in n:
+        f_ = f.subs(cond)
+        assert bool(f_.subs({a: True})) <= bool(f_.subs({a: False})), "not negative unate"
+

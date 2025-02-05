@@ -18,7 +18,7 @@ from ..cell_types import Combinational, SingleEdgeDFF, Latch, CellType
 
 from PySpice.Unit import *
 
-from ..logic.util import is_unate_in_xi
+from ..logic.util import is_unate_in_xi, find_unateness_conditions
 from ..liberty import util as liberty_util
 from ..logic import functional_abstraction
 from ..logic import seq_recognition
@@ -1184,7 +1184,7 @@ def characterize_combinational_output(
 
             # Find assignments of the other input pins such that
             # the output is positive unate / negative unate.
-            pos_unate_values, neg_unate_values = _find_unateness_conditions(f, related_pin)
+            pos_unate_values, neg_unate_values = find_unateness_conditions(f, related_pin)
             logger.info(f"{related_pin} is positive unate when {pos_unate_values}")
             logger.info(f"{related_pin} is negative unate when {neg_unate_values}")
 
@@ -1284,30 +1284,3 @@ def _transistors2multigraph(transistors) -> nx.MultiGraph:
     assert len(G) == 0 or nx.is_connected(G)
     return G
 
-def _find_unateness_conditions(f, input_variable: sympy.Symbol):
-    """
-    Find two sets of variable assignments `p` and `n` such 
-    that `f` is positive unate under the assigmnent `p` and negative unate
-    under the assigment `n`.
-
-    Returns: (p, n)
-    """
-
-    def greater_or_equal(a, b):
-        """ Boolean greater-or-equal """
-        return (a & ~b) | (a == b)
-
-    def less_or_equal(a, b):
-        """ Boolean less-or-equal """
-        return greater_or_equal(b, a)
-    
-    # A function `f` is positive unate iff: f(..., x_i = 1, ...) >= f(..., x_i = 0, ...)
-    # A function `f` is negative unate iff: f(..., x_i = 1, ...) <= f(..., x_i = 0, ...)
-
-    f0 = f.subs({input_variable: False})         
-    f1 = f.subs({input_variable: True})       
-    
-    p = list(satisfiable(greater_or_equal(f1, f0), all_models=True))
-    n = list(satisfiable(less_or_equal(f1, f0), all_models=True))
-
-    return p, n
