@@ -99,10 +99,14 @@ def recognize_cell_from_liberty(cell_group: Group) -> Union[Latch, SingleEdgeDFF
 
         cell_type = SingleEdgeDFF()
         cell_type.internal_state = sympy.Symbol(iq)
-        cell_type.clocked_on = clocked_on
-        cell_type.next_state = next_state
-        cell_type.async_preset = preset
-        cell_type.async_clear = clear
+        if clocked_on is not None:
+            cell_type.clocked_on = clocked_on
+        if next_state is not None:
+            cell_type.next_state = next_state
+        if preset is not None:
+            cell_type.async_preset = preset
+        if clear is not None:
+            cell_type.async_clear = clear
 
     elif latch_group:
         if len(latch_group) != 1:
