@@ -29,10 +29,12 @@ def characterize_flip_flop_output(
         abort("Need to specify 'related-pin-transition' for the clock pin.")
 
     # Create or update the 'ff' group.
-    ff_group = new_cell_group.get_groups('ff')
-    if not ff_group:
+    ff_groups = new_cell_group.get_groups('ff')
+    if not ff_groups:
         ff_group = Group('ff')
         new_cell_group.groups.append(ff_group)
+    else:
+        ff_group = ff_groups[0]
 
     # Store content of 'ff' group.
     ff_group.args = [str(cell_type.internal_state), str(cell_type.internal_state) + "_INV"]
@@ -61,6 +63,10 @@ def characterize_flip_flop_output(
     # Make sure preset/clear are disabled.
     preset_condition = cell_type.async_preset
     clear_condition = cell_type.async_clear
+
+    assert preset_condition is not None, "preset condition must not be `None`" 
+    assert clear_condition is not None, "clear condition must not be `None`"
+
     # Find a variable assignment such that neither preset nor clear is active.
     no_preset_no_clear = list(satisfiable(~preset_condition & ~clear_condition, all_models=True))
     for model in no_preset_no_clear:
@@ -314,7 +320,6 @@ def characterize_flip_flop_output(
             (setup_time, hold_time) = settings[conf.timing_corner]
             
             clock_cycle_hint = clock_pulse_width_guess * 2 # Choose a big-enough clock pulse such that data is sampled for sure.
-        
             data_transition_time = 1e-13 # TODO
             
             delay, slew_time = seq.measure_clock_to_output_delay(

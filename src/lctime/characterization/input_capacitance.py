@@ -10,6 +10,7 @@ Measurement of the input capacitance by driving the input pin with a constant cu
 import os
 
 from itertools import product
+from collections import Counter
 
 from .util import *
 from .piece_wise_linear import *
@@ -46,6 +47,15 @@ def characterize_input_capacitances(
 
     assert isinstance(cell_conf, CellConfig)
     assert isinstance(cell_conf.global_conf, CharacterizationConfig)
+
+    # Check for duplicated pins
+    def duplicates(items: List) -> List:
+        counted = Counter(items)
+        return [i for i, c in counted.items() if c > 1]
+
+    assert not duplicates(input_pins), f"Duplicated input pins: {duplicates(input_pins)}"
+    assert not duplicates(output_pins), f"Duplicated output pins: {duplicates(output_pins)}"
+    
     cfg = cell_conf.global_conf
 
     inputs_inverted = cell_conf.complementary_pins.values()
