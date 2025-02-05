@@ -72,6 +72,7 @@ class SingleEdgeDFF(CellType):
         super().__init__()
 
         self.internal_state: sympy.Symbol = None
+        self.internal_state_n: sympy.Symbol = None
         """
         Variable for the current internal state.
         """

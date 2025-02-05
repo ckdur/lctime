@@ -107,6 +107,7 @@ def find_minimum_clock_pulse_width(
         clock_input: str,
         data_in: str,
         data_out: str,
+        inverse: bool,
         setup_time: float,
         clock_pulse_polarity: bool,
         rising_data_edge: bool,
@@ -211,9 +212,12 @@ def find_minimum_clock_pulse_width(
             # and then switches to the other rail such that the flip-flop changes state with the second clock pulse.
 
             input_toggle_time = setup_time + time_between_pulses / 2
+            polarity = rising_data_edge
+            if inverse:
+                polarity = not polarity
             input_signal = StepWave(
                 start_time=input_toggle_time,
-                polarity=rising_data_edge,
+                polarity=polarity,
                 transition_time=1e-15,  # Almost instant.
             )
             input_signal *= cfg.supply_voltage
@@ -524,6 +528,7 @@ def get_clock_to_output_delay(
         clock_input: str,
         data_in: str,
         data_out: str,
+        inverse: bool,
         setup_time: float,
         hold_time: float,
         rising_clock_edge: bool,
@@ -667,9 +672,11 @@ def get_clock_to_output_delay(
         data_out: 0 if rising_data_edge else supply_voltage
     }
 
+    rising_data_edge_real = rising_data_edge ^ inverse
+
     # Simulate only until output reaches threshold.
     # Compute stopping voltages of the output signal.
-    if rising_data_edge:
+    if rising_data_edge_real:
         # Rising edge.
         # Add a margin on the threshold to simulate a bit longer.
         threshold = 1 - 0.1 * (1 - trip_points.output_threshold_rise)
@@ -680,7 +687,7 @@ def get_clock_to_output_delay(
 
     # Set a breakpoint that is active only short before the actual clock edge.
     # This way it ignores signal changes during the initialization.
-    cmp = '>' if rising_data_edge else '<'
+    cmp = '>' if rising_data_edge_real else '<'
     assert t_clock_edge - period / 2 > 0
     breakpoint_statement = f"stop when v({data_out}) {cmp} {supply_voltage * threshold} " \
                            f"when time > {t_clock_edge + clock_transition_time * 0.05}"
@@ -774,11 +781,11 @@ def get_clock_to_output_delay(
 
     # Turn a falling edge into a rising edge by flipping the signal.
     # This makes measurement of the delay easier.
-    if not rising_data_edge:
+    if not rising_data_edge_real:
         output_voltage = 1 - output_voltage
 
     # Get decision thresholds.
-    if rising_data_edge:
+    if rising_data_edge_real:
         output_threshold = trip_points.output_threshold_rise
     else:
         # Invert threshold because the signal gets also normalized.
@@ -811,6 +818,7 @@ def characterize_flip_flop_setup_hold(
 
         data_in_pin: str,
         data_out_pin: str,
+        inverse: bool,
         clock_pin: str,
         clock_edge_polarity: bool,
 
@@ -842,6 +850,7 @@ def characterize_flip_flop_setup_hold(
             cell_conf=cell_conf,
             data_in_pin=data_in_pin,
             data_out_pin=data_out_pin,
+            inverse=inverse,
             clock_pin=clock_pin,
             clock_edge_polarity=clock_edge_polarity,
             output_load_capacitances={data_out_pin: output_load_capacitance},
@@ -927,6 +936,7 @@ def measure_flip_flop_setup_hold(
         cell_conf: CellConfig,
         data_in_pin: str,
         data_out_pin: str,
+        inverse: bool,
         clock_pin: str,
         clock_edge_polarity: bool,
         output_load_capacitances: Dict[str, float],
@@ -995,6 +1005,7 @@ def measure_flip_flop_setup_hold(
                 clock_input=clock_pin,
                 data_in=data_in_pin,
                 data_out=data_out_pin,
+                inverse=inverse,
                 setup_time=setup_time,
                 hold_time=hold_time,
                 rising_clock_edge=rising_clock_edge,
@@ -1420,6 +1431,7 @@ def measure_clock_to_output_delay(
         cell_conf: CellConfig,
         data_in_pin: str,
         data_out_pin: str,
+        inverse: bool,
         clock_pin: str,
         clock_edge_polarity: bool,
         data_edge_polarity: bool,
@@ -1464,6 +1476,7 @@ def measure_clock_to_output_delay(
         clock_input=clock_pin,
         data_in=data_in_pin,
         data_out=data_out_pin,
+        inverse=inverse,
         setup_time=setup_time,
         hold_time=hold_time,
         rising_clock_edge=clock_edge_polarity,
