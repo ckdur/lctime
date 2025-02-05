@@ -63,6 +63,14 @@ def characterize_flip_flop_output(
     # Make sure preset/clear are disabled.
     preset_condition = cell_type.async_preset
     clear_condition = cell_type.async_clear
+
+    # Fall-back to `false` if conditions are `None`.
+    # TODO: is this necessary?
+    if preset_condition is None:
+        preset_condition = sympy.false
+    if clear_condition is None:
+        clear_condition = sympy.false
+        
     # Find a variable assignment such that neither preset nor clear is active.
     no_preset_no_clear = list(satisfiable(~preset_condition & ~clear_condition, all_models=True))
     for model in no_preset_no_clear:
