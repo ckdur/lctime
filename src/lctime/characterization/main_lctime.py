@@ -817,7 +817,7 @@ class CellSetup:
             self.input_pins.extend(diff)
 
         # Find pins that are defined in the SPICE circuit but are not inputs nor power.
-        maybe_outputs = all_spice_pins - set(self.input_pins) - set(self.power_pins())
+        maybe_outputs = all_spice_pins - set(self.input_pins) - set(self.power_pins()) - set(self.output_pins)
         if maybe_outputs:
             logger.info(f"Potential output pins: {', '.join(sorted(maybe_outputs))}")
             self.output_pins.extend(maybe_outputs)
