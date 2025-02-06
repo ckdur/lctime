@@ -176,7 +176,7 @@ def characterize_flip_flop_output(
                     data_out=data_out_pin,
                     setup_time=2e-9,  # Choose a reasonably large setup time.
                     clock_pulse_polarity=clock_pulse_polarity,
-                    rising_data_edge=rising_data_edge,
+                    rising_data_edge_in=rising_data_edge,
                     clock_rise_time=10e-12,  # TODO: Something fails when 0.
                     clock_fall_time=10e-12,  # TODO: How to choose this?
                     output_load_capacitances={data_out_pin: 0},
@@ -278,6 +278,7 @@ def characterize_flip_flop_output(
         
         output_function = cell_type.outputs[data_out_pin].function
         logger.info(f"Output function: {output_function}")
+
         
         # Convert output pin to string
         data_out_pin_name = str(data_out_pin)
@@ -297,6 +298,32 @@ def characterize_flip_flop_output(
         data_in_pin, static_input_values, observer_outputs = possible_input_pins[0]
 
         assert data_out_pin in observer_outputs, f"Flip-flop state is not observable from {data_out_pin} when {static_input_values}."
+        
+        # Determine if this output is the inverse of the internal state given the current static assignments of the other inputs.
+        assignment = static_input_values.copy()
+        assignment.update({cell_type.internal_state: False, cell_type.internal_state_n: True})
+        is_output_inverted = output_function.subs({var: val for var, val in assignment.items() if var is not None})
+
+        # Determine if the non-inverted internal state is really not inverted (it might be inverted).
+        input0 = static_input_values.copy()
+        input1 = static_input_values.copy()
+        input0[data_in_pin] = False
+        input1[data_in_pin] = True
+        
+        next_state_input0 = cell_type.next_state.subs(input0)
+        next_state_input1 = cell_type.next_state.subs(input1)
+
+        # Sanity check.
+        assert next_state_input0 != next_state_input1, f"state is not controllable by input {data_in_pin} with {static_input_values}" # Should not happen because the input values are chosen such that the state is controllable.
+            
+        # If data is 0 and state becomes 1, then the state is inverted.
+        is_state_inverted = next_state_input0 
+        
+        # Determine if the current output is the inverse of the data input.
+        inverted_output = is_state_inverted ^ is_output_inverted
+        assert inverted_output in [sympy.false, sympy.true], f"Can't determine inversion of output from the output function: {output_function}"
+        # Convert to bool.
+        inverted_output = bool(inverted_output)
 
         # Translate logic values to voltages.
         static_input_voltages = {
@@ -335,7 +362,8 @@ def characterize_flip_flop_output(
                 setup_time,
                 hold_time,
                 clock_cycle_hint,
-                static_input_voltages
+                static_input_voltages,
+                inverted_output=inverted_output,
             )
             return delay, slew_time
       

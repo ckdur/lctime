@@ -35,7 +35,7 @@ def ff_find_stabilization_time(
         supply_voltage: float,
         setup_time: float,
         clock_edge_polarity: bool,
-        rising_data_edge: bool,
+        rising_data_edge_in: bool,
         clock_rise_time: float,
         clock_fall_time: float,
         output_load_capacitances: Dict[str, float] = None,
@@ -107,13 +107,13 @@ def find_minimum_clock_pulse_width(
         clock_input: str,
         data_in: str,
         data_out: str,
-        inverse: bool,
         setup_time: float,
         clock_pulse_polarity: bool,
-        rising_data_edge: bool,
+        rising_data_edge_in: bool,
         clock_rise_time: float,
         clock_fall_time: float,
         clock_pulse_width_guess: float,
+        inverted_output: bool = False,
         output_load_capacitances: Dict[str, float] = None,
         max_delay_estimation: float = 1e-7,
         static_input_voltages: Dict[str, float] = None,
@@ -121,7 +121,7 @@ def find_minimum_clock_pulse_width(
     """Find the minimum clock pulse width such that the data is sampled.
 
     :param ff_clock_edge_polarity: Type of active clock edge. Rising edge: True, Falling edge: False.
-    :param rising_data_edge:
+    :param rising_data_edge_in: polarity of input data edge (True=rising, False=falling)
     :param clock_pulse_polarity:
     :param setup_time:
     :param cell_config:
@@ -140,10 +140,13 @@ def find_minimum_clock_pulse_width(
     :return: Returns a tuple of the minimal clock pulse width such that the data signal is sampled and the corresponding delay.
         (min clock pulse width, clock-to-output delay)
     """
+    assert isinstance(inverted_output, bool)
     assert isinstance(cell_config, CellConfig)
     cfg = cell_config.global_conf
     assert isinstance(cfg, CharacterizationConfig)
     workingdir = cell_config.workingdir
+
+    rising_data_edge_out = rising_data_edge_in ^ inverted_output
 
     logger.debug("Find minimum clock pulse width.")
 
@@ -212,12 +215,10 @@ def find_minimum_clock_pulse_width(
             # and then switches to the other rail such that the flip-flop changes state with the second clock pulse.
 
             input_toggle_time = setup_time + time_between_pulses / 2
-            polarity = rising_data_edge
-            if inverse:
-                polarity = not polarity
+
             input_signal = StepWave(
                 start_time=input_toggle_time,
-                polarity=polarity,
+                polarity=rising_data_edge_in,
                 transition_time=1e-15,  # Almost instant.
             )
             input_signal *= cfg.supply_voltage
@@ -238,8 +239,8 @@ def find_minimum_clock_pulse_width(
             # Simulate until output signal clearly reaches the other rail.
             # Waiting until the signal reaches ~50% is not sufficient because
             # it might be in a meta stable state.
-            threshold = 0.98 if rising_data_edge else 0.02
-            cmp = ">" if rising_data_edge else "<"
+            threshold = 0.98 if rising_data_edge_in else 0.02
+            cmp = ">" if rising_data_edge_in else "<"
             breakpoint_statement = f"stop when v({data_out}) {cmp} {supply_voltage * threshold} " \
                                    f"when time > {setup_time + time_between_pulses}"
             breakpoints = [breakpoint_statement]
@@ -247,7 +248,7 @@ def find_minimum_clock_pulse_width(
             # Simulation script file path.
             file_name = f"lctime_min_clk_pulse_width_" \
                         f"{'pos_pulse' if clock_pulse_polarity else 'neg_pulse'}_" \
-                        f"{'data_rising' if rising_data_edge else 'data_falling'}"
+                        f"{'data_rising' if rising_data_edge_in else 'data_falling'}"
             sim_file = os.path.join(workingdir, f"{file_name}.sp")
 
             # Output file for simulation results.
@@ -317,11 +318,11 @@ def find_minimum_clock_pulse_width(
 
             # Turn a falling edge into a rising edge by flipping the signal.
             # This makes measurement of the delay easier.
-            if not rising_data_edge:
+            if not rising_data_edge_in:
                 output_voltage = 1 - output_voltage
 
             # Get decision thresholds.
-            if rising_data_edge:
+            if rising_data_edge_in:
                 output_threshold = cfg.trip_points.output_threshold_rise
             else:
                 output_threshold = cfg.trip_points.output_threshold_fall
@@ -344,7 +345,7 @@ def find_minimum_clock_pulse_width(
                 assert t_active_clock_edge is not None
 
                 # Get first output data edge.
-                thresh_data = cfg.trip_points.input_threshold_rise if rising_data_edge else cfg.trip_points.input_threshold_fall
+                thresh_data = cfg.trip_points.input_threshold_rise if rising_data_edge_in else cfg.trip_points.input_threshold_fall
                 t_output_data_edge = transition_time(voltage=output_voltage, time=time, n=0,
                                                      threshold=thresh_data)
                 assert t_output_data_edge is not None
@@ -528,16 +529,16 @@ def get_clock_to_output_delay(
         clock_input: str,
         data_in: str,
         data_out: str,
-        inverse: bool,
         setup_time: float,
         hold_time: float,
         rising_clock_edge: bool,
-        rising_data_edge: bool,
+        rising_data_edge_in: bool,
         input_rise_time: float,
         input_fall_time: float,
         clock_rise_time: float,
         clock_fall_time: float,
         clock_cycle_hint: float,
+        inverted_output: bool = False,
         enable_pre_measurement_clock_cycle: bool = True,
         output_load_capacitances: Dict[str, float] = None,
         setup_statements: List[str] = None,
@@ -554,7 +555,7 @@ def get_clock_to_output_delay(
     :param setup_time: Delay from data input `D` edge to rising clock edge.
     :param hold_time: Delay from clock edge to data input edge.
     :param rising_clock_edge: `True` = use rising clock edge, `False` = use falling clock edge.
-    :param rising_data_edge: `True` = use rising data edge, `False` = use falling data edge.
+    :param rising_data_edge_in: `True` = use rising input data edge, `False` = use falling input data edge.
     :param input_rise_time: Rise time of the input signal (clock and data).
     :param input_fall_time: Fall time of the input signal (clock and data).
     :param output_load_capacitances: A dict with (net, capacitance) pairs which defines the load capacitances attached to certain nets.
@@ -569,6 +570,8 @@ def get_clock_to_output_delay(
      Returns `Inf` if the output does not toggle within the maximum simulation time.
     """
 
+    assert isinstance(inverted_output, bool)
+
     assert isinstance(cell_conf, CellConfig)
     assert cell_conf.workingdir is not None
     workingdir = cell_conf.workingdir
@@ -578,6 +581,8 @@ def get_clock_to_output_delay(
 
     trip_points = cfg.trip_points
     assert isinstance(trip_points, TripPoints)
+
+    rising_data_edge_out = rising_data_edge_in ^ inverted_output
 
     supply_voltage = cfg.supply_voltage
     supply_net = cell_conf.supply_net
@@ -639,7 +644,7 @@ def get_clock_to_output_delay(
     input_wave = PulseWave(
         start_time=t_clock_edge - setup_time,
         duration=setup_time + hold_time,
-        polarity=rising_data_edge,
+        polarity=rising_data_edge_in,
         rise_time=input_rise_time,
         fall_time=input_fall_time,
         rise_threshold=trip_points.input_threshold_rise,
@@ -669,14 +674,12 @@ def get_clock_to_output_delay(
 
     # Initial voltages of output nodes..
     initial_conditions = {
-        data_out: 0 if rising_data_edge else supply_voltage
+        data_out: 0 if rising_data_edge_out else supply_voltage
     }
-
-    rising_data_edge_real = rising_data_edge ^ inverse
 
     # Simulate only until output reaches threshold.
     # Compute stopping voltages of the output signal.
-    if rising_data_edge_real:
+    if rising_data_edge_out:
         # Rising edge.
         # Add a margin on the threshold to simulate a bit longer.
         threshold = 1 - 0.1 * (1 - trip_points.output_threshold_rise)
@@ -687,7 +690,7 @@ def get_clock_to_output_delay(
 
     # Set a breakpoint that is active only short before the actual clock edge.
     # This way it ignores signal changes during the initialization.
-    cmp = '>' if rising_data_edge_real else '<'
+    cmp = '>' if rising_data_edge_out else '<'
     assert t_clock_edge - period / 2 > 0
     breakpoint_statement = f"stop when v({data_out}) {cmp} {supply_voltage * threshold} " \
                            f"when time > {t_clock_edge + clock_transition_time * 0.05}"
@@ -702,7 +705,7 @@ def get_clock_to_output_delay(
 
     file_name = f"lctime_clock_to_output_delay_" \
                 f"{'clk_rising' if rising_clock_edge else 'clk_falling'}_" \
-                f"{'data_rising' if rising_data_edge else 'data_falling'}"
+                f"{'data_rising' if rising_data_edge_in else 'data_falling'}"
     sim_file = os.path.join(workingdir, f"{file_name}.sp")
 
     # Output file for simulation results.
@@ -781,11 +784,11 @@ def get_clock_to_output_delay(
 
     # Turn a falling edge into a rising edge by flipping the signal.
     # This makes measurement of the delay easier.
-    if not rising_data_edge_real:
+    if not rising_data_edge_out:
         output_voltage = 1 - output_voltage
 
     # Get decision thresholds.
-    if rising_data_edge_real:
+    if rising_data_edge_out:
         output_threshold = trip_points.output_threshold_rise
     else:
         # Invert threshold because the signal gets also normalized.
@@ -818,13 +821,13 @@ def characterize_flip_flop_setup_hold(
 
         data_in_pin: str,
         data_out_pin: str,
-        inverse: bool,
         clock_pin: str,
         clock_edge_polarity: bool,
 
         related_pin_transition: np.ndarray,
         constrained_pin_transition: np.ndarray,
 
+        inverted_output: bool = False,
         static_input_voltages: Dict[str, float] = None,
         output_load_capacitance: float = 0,
 
@@ -844,13 +847,14 @@ def characterize_flip_flop_setup_hold(
     This should include clear/preset and scan_enable signals, if there are any.
     :return:
     """
+    assert isinstance(inverted_output, bool)
 
     def f(input_transition_time: float, clock_transition_time: float):
         result = measure_flip_flop_setup_hold(
             cell_conf=cell_conf,
             data_in_pin=data_in_pin,
             data_out_pin=data_out_pin,
-            inverse=inverse,
+            inverted_output=inverted_output,
             clock_pin=clock_pin,
             clock_edge_polarity=clock_edge_polarity,
             output_load_capacitances={data_out_pin: output_load_capacitance},
@@ -936,7 +940,7 @@ def measure_flip_flop_setup_hold(
         cell_conf: CellConfig,
         data_in_pin: str,
         data_out_pin: str,
-        inverse: bool,
+        inverted_output: bool,
         clock_pin: str,
         clock_edge_polarity: bool,
         output_load_capacitances: Dict[str, float],
@@ -957,6 +961,7 @@ def measure_flip_flop_setup_hold(
     :return: Returns a `FFSetupHoldResult` object that bundles the results.
     """
     assert isinstance(cell_conf, CellConfig)
+    assert isinstance(inverted_output, bool)
     cfg = cell_conf.global_conf
 
     assert hold_margin > 0
@@ -984,7 +989,7 @@ def measure_flip_flop_setup_hold(
             setup_time: float,
             hold_time: float,
             rising_clock_edge: bool,
-            rising_data_edge: bool
+            rising_data_edge_in: bool
     ):
         """
         Wrapper around `get_clock_to_output_delay()`. Results are cached such that a further call with same arguments returns the
@@ -992,12 +997,12 @@ def measure_flip_flop_setup_hold(
         :param setup_time:
         :param hold_time:
         :param rising_clock_edge:
-        :param rising_data_edge:
+        :param rising_data_edge_in:
         :return:
         """
-        logger.debug(f"evaluate delay_f({setup_time}, {hold_time}, {rising_clock_edge}, {rising_data_edge})")
+        logger.debug(f"evaluate delay_f({setup_time}, {hold_time}, {rising_clock_edge}, {rising_data_edge_in})")
 
-        cache_tag = (setup_time, hold_time, rising_clock_edge, rising_data_edge)
+        cache_tag = (setup_time, hold_time, rising_clock_edge, rising_data_edge_in)
         result = cache.get(cache_tag)
         if result is None:
             result = get_clock_to_output_delay(
@@ -1005,11 +1010,11 @@ def measure_flip_flop_setup_hold(
                 clock_input=clock_pin,
                 data_in=data_in_pin,
                 data_out=data_out_pin,
-                inverse=inverse,
                 setup_time=setup_time,
                 hold_time=hold_time,
                 rising_clock_edge=rising_clock_edge,
-                rising_data_edge=rising_data_edge,
+                rising_data_edge_in=rising_data_edge_in,
+                inverted_output=inverted_output,
                 input_rise_time=data_rise_time,
                 input_fall_time=data_fall_time,
                 clock_rise_time=clock_rise_time,
@@ -1024,7 +1029,7 @@ def measure_flip_flop_setup_hold(
             logger.debug('Cache hit.')
         return result
 
-    def find_min_data_delay(rising_data_edge: bool, abstol: float = 1e-12) -> Tuple[float, Tuple[float, float]]:
+    def find_min_data_delay(rising_data_edge_in: bool, abstol: float = 1e-12) -> Tuple[float, Tuple[float, float]]:
         """ Find minimum clock->data delay (with large setup/hold window).
 
         Procedure is as follows: Setup and hold time are increased until the data delay reaches a stable value.
@@ -1048,7 +1053,7 @@ def measure_flip_flop_setup_hold(
         for _ in ctr:
             delay = delay_f(setup_time, hold_time,
                             rising_clock_edge=clock_edge_polarity,
-                            rising_data_edge=rising_data_edge)
+                            rising_data_edge_in=rising_data_edge_in)
 
             if prev_delay is not None and delay != float('Inf'):
                 diff = abs(delay - prev_delay)
@@ -1077,8 +1082,8 @@ def measure_flip_flop_setup_hold(
     # setup and hold times.
     logger.debug("Find minimal propagation delays.")
     tolerance = 1e-12
-    min_rise_delay, (setup_guess_rise, hold_guess_rise) = find_min_data_delay(rising_data_edge=True, abstol=tolerance)
-    min_fall_delay, (setup_guess_fall, hold_guess_fall) = find_min_data_delay(rising_data_edge=False, abstol=tolerance)
+    min_rise_delay, (setup_guess_rise, hold_guess_rise) = find_min_data_delay(rising_data_edge_in=True, abstol=tolerance)
+    min_fall_delay, (setup_guess_fall, hold_guess_fall) = find_min_data_delay(rising_data_edge_in=False, abstol=tolerance)
 
     logger.debug(f"min_rise_delay = {min_rise_delay}")
     logger.debug(f"min_fall_delay = {min_fall_delay}")
@@ -1110,19 +1115,19 @@ def measure_flip_flop_setup_hold(
     xtol = 1e-15
     rtol = 1e-6
 
-    def find_min_setup(rising_data_edge: bool,
+    def find_min_setup(rising_data_edge_in: bool,
                        hold_time: float) -> Tuple[float, float]:
         """
         Find minimal setup time given a fixed hold time.
         Set `hold_time` to a very large value to find the independent minimal setup time.
-        :param rising_data_edge: True = rising data edge, False = falling data edge.
+        :param rising_data_edge_in: True = rising input data edge, False = falling input data edge.
         :param hold_time: Fixed hold time.
         :return:
         """
-        max_delay = max_rise_delay if rising_data_edge else max_fall_delay
-        setup_guess = setup_guess_rise if rising_data_edge else setup_guess_fall
+        max_delay = max_rise_delay if rising_data_edge_in else max_fall_delay
+        setup_guess = setup_guess_rise if rising_data_edge_in else setup_guess_fall
 
-        logger.debug(f"Find min. setup time. Hold time = {hold_time}. rising_data_edge = {rising_data_edge}")
+        logger.debug(f"Find min. setup time. Hold time = {hold_time}. rising_data_edge_in = {rising_data_edge_in}")
 
         def f(setup_time: float) -> float:
             """
@@ -1135,7 +1140,7 @@ def measure_flip_flop_setup_hold(
             # assert setup_time + hold_time >= input_rise_time + input_fall_time
             delay = delay_f(setup_time=setup_time, hold_time=hold_time,
                             rising_clock_edge=clock_edge_polarity,
-                            rising_data_edge=rising_data_edge)
+                            rising_data_edge_in=rising_data_edge_in)
             return delay - max_delay
 
         # Determine min and max setup time for binary search.
@@ -1184,19 +1189,19 @@ def measure_flip_flop_setup_hold(
 
         return min_setup_time, delay_err + max_delay
 
-    def find_min_hold(rising_data_edge: bool,
+    def find_min_hold(rising_data_edge_in: bool,
                       setup_time: float) -> Tuple[float, float]:
         """
         Find minimal hold time given a fixed setup time.
         Set `setup_time` to a very large value to find the independent minimal hold time.
-        :param rising_data_edge: True = rising data edge, False = falling data edge.
+        :param rising_data_edge_in: True = rising input data edge, False = falling input data edge.
         :param setup_time: Fixed setup time.
         :return: Minimal hold time.
         """
-        max_delay = max_rise_delay if rising_data_edge else max_fall_delay
-        hold_guess = hold_guess_rise if rising_data_edge else hold_guess_fall
+        max_delay = max_rise_delay if rising_data_edge_in else max_fall_delay
+        hold_guess = hold_guess_rise if rising_data_edge_in else hold_guess_fall
 
-        logger.debug(f"Find min. hold time. Setup time = {setup_time}. rising_data_edge = {rising_data_edge}")
+        logger.debug(f"Find min. hold time. Setup time = {setup_time}. rising_data_edge_in = {rising_data_edge_in}")
 
         def f(hold_time: float) -> float:
             """
@@ -1208,7 +1213,7 @@ def measure_flip_flop_setup_hold(
             delay = delay_f(setup_time=setup_time,
                             hold_time=hold_time,
                             rising_clock_edge=clock_edge_polarity,
-                            rising_data_edge=rising_data_edge)
+                            rising_data_edge_in=rising_data_edge_in)
             return delay - max_delay
 
         # Determine min and max hold time for binary search.
@@ -1236,7 +1241,7 @@ def measure_flip_flop_setup_hold(
 
         return min_hold_time, f(min_hold_time) + max_delay
 
-    def find_min_setup_plus_hold(rising_data_edge: bool, setup_guess: float, hold_guess: float) -> Tuple[float, float]:
+    def find_min_setup_plus_hold(rising_data_edge_in: bool, setup_guess: float, hold_guess: float) -> Tuple[float, float]:
         """
         Find the smallest `setup_time + hold_time` such that the flip-flop is operational and the output delay
         corresponds to the maximum allowed delay.
@@ -1247,16 +1252,16 @@ def measure_flip_flop_setup_hold(
         3) Find the window width such that the resulting delay equals the maximum allowed delay. Update the window width.
         4) If tolerance is not met: Continue at 2. Otherwise return the result.
 
-        :param rising_data_edge: True = rising data edge, False = falling data edge.
+        :param rising_data_edge_in: True = rising input data edge, False = falling input data edge.
         :param setup_guess: Initial value for the setup time.
         :param hold_guess: Initial value for the hold time.
         :return:
         """
-        max_delay = max_rise_delay if rising_data_edge else max_fall_delay
+        max_delay = max_rise_delay if rising_data_edge_in else max_fall_delay
 
         logger.debug(f"Find min. setup plus hold time."
                     f"Initial setup = {setup_guess}, initial hold = {hold_guess}. "
-                    f"rising_data_edge = {rising_data_edge}")
+                    f"rising_data_edge_in = {rising_data_edge_in}")
 
         def f(window_width: float, center: float) -> float:
             """
@@ -1273,7 +1278,7 @@ def measure_flip_flop_setup_hold(
             hold_time = center + window_width / 2
             delay = delay_f(setup_time=setup_time, hold_time=hold_time,
                             rising_clock_edge=clock_edge_polarity,
-                            rising_data_edge=rising_data_edge)
+                            rising_data_edge_in=rising_data_edge_in)
             return delay - max_delay
 
         center = 0
@@ -1340,7 +1345,7 @@ def measure_flip_flop_setup_hold(
 
     if False:
         logger.info("Find minimal setup + hold time.")
-        min_setup_plus_hold = find_min_setup_plus_hold(rising_data_edge=True,
+        min_setup_plus_hold = find_min_setup_plus_hold(rising_data_edge_in=True,
                                                        setup_guess=setup_guess_rise,
                                                        hold_guess=hold_guess_rise
                                                        )
@@ -1357,9 +1362,9 @@ def measure_flip_flop_setup_hold(
     stable forever after the clock edge.
     """
     hold_time_guess = max(hold_guess_rise, hold_guess_fall) * 8
-    min_setup_time_uncond_rise, min_setup_delay_rise = find_min_setup(rising_data_edge=True,
+    min_setup_time_uncond_rise, min_setup_delay_rise = find_min_setup(rising_data_edge_in=True,
                                                                       hold_time=hold_time_guess)
-    min_setup_time_uncond_fall, min_setup_delay_fall = find_min_setup(rising_data_edge=False,
+    min_setup_time_uncond_fall, min_setup_delay_fall = find_min_setup(rising_data_edge_in=False,
                                                                       hold_time=hold_time_guess)
 
     logger.info(f"unconditional min. setup time rise: {min_setup_time_uncond_rise}")
@@ -1374,9 +1379,9 @@ def measure_flip_flop_setup_hold(
     since an infinite time before the clock edge.
     """
     setup_time_guess = max(setup_guess_rise, setup_guess_fall) * 8  # TODO: How to choose the initial value?
-    min_hold_time_uncond_rise, min_hold_delay_rise = find_min_hold(rising_data_edge=True,
+    min_hold_time_uncond_rise, min_hold_delay_rise = find_min_hold(rising_data_edge_in=True,
                                                                    setup_time=setup_time_guess)
-    min_hold_time_uncond_fall, min_hold_delay_fall = find_min_hold(rising_data_edge=False,
+    min_hold_time_uncond_fall, min_hold_delay_fall = find_min_hold(rising_data_edge_in=False,
                                                                    setup_time=setup_time_guess)
 
     logger.info(f"unconditional min. hold time rise: {min_hold_time_uncond_rise}")
@@ -1387,21 +1392,21 @@ def measure_flip_flop_setup_hold(
     # Find dependent setup time.
     logger.info("Measure dependent minimal setup time.")
     dependent_setup_time_rise, dependent_setup_delay_rise = \
-        find_min_setup(rising_data_edge=True,
+        find_min_setup(rising_data_edge_in=True,
                        hold_time=min_hold_time_uncond_rise + hold_margin)
 
     dependent_setup_time_fall, dependent_setup_delay_fall = \
-        find_min_setup(rising_data_edge=False,
+        find_min_setup(rising_data_edge_in=False,
                        hold_time=min_hold_time_uncond_fall + hold_margin)
 
     # Find dependent hold time.
     logger.info("Measure dependent minimal hold time.")
     dependent_hold_time_rise, dependent_hold_delay_rise = \
-        find_min_hold(rising_data_edge=True,
+        find_min_hold(rising_data_edge_in=True,
                       setup_time=min_setup_time_uncond_rise + setup_margin)
 
     dependent_hold_time_fall, dependent_hold_delay_fall = \
-        find_min_hold(rising_data_edge=False,
+        find_min_hold(rising_data_edge_in=False,
                       setup_time=min_setup_time_uncond_fall + setup_margin)
 
     logger.info(f"dep. setup (rise, fall): {dependent_setup_time_rise}, {dependent_setup_time_fall}")
@@ -1431,7 +1436,6 @@ def measure_clock_to_output_delay(
         cell_conf: CellConfig,
         data_in_pin: str,
         data_out_pin: str,
-        inverse: bool,
         clock_pin: str,
         clock_edge_polarity: bool,
         data_edge_polarity: bool,
@@ -1441,13 +1445,15 @@ def measure_clock_to_output_delay(
         setup_time: float,
         hold_time: float,
         clock_cycle_hint: float = 1e-9,
-        static_input_voltages: Dict[str, float] = None
+        static_input_voltages: Dict[str, float] = None,
+        inverted_output: bool = False,
 ) -> (float, float):
     """
     Measure the delay and slew from the clock edge to the output data edge.
     
     Returns (delay, slew time)
     """
+    assert isinstance(inverted_output, bool)
     assert isinstance(cell_conf, CellConfig)
     cfg = cell_conf.global_conf
 
@@ -1476,11 +1482,11 @@ def measure_clock_to_output_delay(
         clock_input=clock_pin,
         data_in=data_in_pin,
         data_out=data_out_pin,
-        inverse=inverse,
+        inverted_output=inverted_output,
         setup_time=setup_time,
         hold_time=hold_time,
         rising_clock_edge=clock_edge_polarity,
-        rising_data_edge=data_edge_polarity,
+        rising_data_edge_in=data_edge_polarity,
         input_rise_time=data_rise_time,
         input_fall_time=data_fall_time,
         clock_rise_time=clock_rise_time,
