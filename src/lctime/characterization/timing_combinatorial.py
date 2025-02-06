@@ -93,7 +93,6 @@ def characterize_comb_cell(
 
     # Get all input nets that are not toggled during a simulation run.
     static_input_nets = [i for i in input_pins_non_inverted if i != related_pin and i not in constant_inputs]
-    print("static input nets:", static_input_nets)
 
     if static_input_patterns is None:
         static_input_patterns = [{}] # Add a pattern which does not constrain any input and therefore leads to all possible combinations.
