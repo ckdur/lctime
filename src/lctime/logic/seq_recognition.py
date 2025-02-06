@@ -587,7 +587,7 @@ def find_flipflop_state_control_and_observe_pins(
 
             # Remember the pin which controls the internal state and the the required
             # voltages at the other pins.
-            controlling_input_pins.append((str(data_in_pin), static_input_voltages, observer_outputs))
+            controlling_input_pins.append((str(data_in_pin), static_input_voltages, observer_outputs, when_other_inputs))
 
     return controlling_input_pins
 
