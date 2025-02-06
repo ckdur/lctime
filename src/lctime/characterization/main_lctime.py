@@ -99,6 +99,7 @@ def recognize_cell_from_liberty(cell_group: Group) -> Union[Latch, SingleEdgeDFF
 
         cell_type = SingleEdgeDFF()
         cell_type.internal_state = sympy.Symbol(iq)
+        cell_type.internal_state_n = sympy.Symbol(iqn)
         if clocked_on is not None:
             cell_type.clocked_on = clocked_on
         if next_state is not None:

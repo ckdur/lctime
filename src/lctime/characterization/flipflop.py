@@ -97,66 +97,27 @@ def characterize_flip_flop_output(
     ## Find data input pins which can control the output pin.
     #control_and_observe_pins = find_flipflop_state_control_and_observe_pins(cell_type, preset_clear_input)
     #assert len(control_and_observe_pins) > 0, "No input pin found which can control the flip-flop state."
-    
+
+    static_inputs_and_observer_outputs = seq_recognition.find_flipflop_state_control_and_observe_pins(
+                                    cell_type, preset_clear_input
+                                )
     
     # Characterize setup/hold for each data pin.
     for i, data_in_pin in enumerate(data_in_pins):
         logger.info(f"Measure constraints of pin {data_in_pin} ({i}/{len(data_in_pins)}).")
-
-        # Find all assignments of the other data pins such that the data pin controls
-        # the internal state.
-        # Find values of the other pins such that:
-        #  next_state(data_in_pin=0, other_pins) != next_state(data_in_pin=1, other_pins)
-        next_state_0 = cell_type.next_state.subs({data_in_pin: False})
-        next_state_1 = cell_type.next_state.subs({data_in_pin: True})
-        models = list(satisfiable(next_state_0 ^ next_state_1, all_models=True))
-
-        for other_pin_values in models:
-            # Express the assignment of the other pins as a boolean formula.
-            # This will also be used as a 'when' statement in the liberty file.
-            when_other_inputs = sympy.And(*(pin if value else ~pin for pin, value in other_pin_values.items()))
-            logger.info(f"Measure constraints of pin {data_in_pin} when {when_other_inputs}.")
-
-            # Set static voltages of other input pins.
-            other_pin_values.update(preset_clear_input)
-            static_input_voltages = dict()
-            for pin, value in other_pin_values.items():
-                if not isinstance(pin, sympy.Symbol):
-                    continue
-                value = value == True
-                voltage = cell_conf.global_conf.supply_voltage if value else 0.0
-                pin = str(pin)
-                logger.debug(f"{pin} = {voltage} V")
-                static_input_voltages[pin] = voltage
-
-            # Find an output pin such that the internal state is observable.
-            observer_outputs = []  # Output pins that can observe the internal memory state.
-            for output_pin, output in cell_type.outputs.items():
-                function = output.function
-                # Substitute with constant input pins.
-                function = function.subs(other_pin_values)
-
-                # Compute the output for all values of the internal state and make sure it is different.
-                function0 = function.subs({cell_type.internal_state: False})
-                function1 = function.subs({cell_type.internal_state: True})
-                is_observable = not satisfiable(~(function0 ^ function1))  # Test if function0 != function1
-
-                logger.debug(f"Internal state {cell_type.internal_state} observable from output {output_pin} "
-                             f"when {other_pin_values}: {is_observable}")
-
-                if is_observable:
-                    observer_outputs.append(output_pin)
-
-            logger.debug(f"Internal state is observable from: {observer_outputs}")
+        
+        for input_pin, static_inputs, observer_outputs, when_other_inputs in static_inputs_and_observer_outputs:
+            if input_pin != str(data_in_pin):
+                continue
 
             if not observer_outputs:
                 # When the internal state is not observable we cannot measure constraints.
                 # Skip this combination.
                 logger.warning(
                     f"Internal memory state {cell_type.internal_state} is not observable from any output "
-                    f"when {other_pin_values}. Skipping input combination.")
+                    f"when {static_inputs}. Skipping input combination.")
                 continue
-
+        
             # Take just one of the observer output pins.
             data_out_pin = observer_outputs[0]
             logger.debug(f"Output pin: {data_out_pin}")
@@ -167,6 +128,12 @@ def characterize_flip_flop_output(
             data_in_pin = str(data_in_pin)
             data_out_pin = str(data_out_pin)
 
+            # Convert boolean values to input voltages.
+            static_input_voltages = {
+                pin: cell_conf.global_conf.supply_voltage if value==True else 0 
+                for pin, value in static_inputs.items()
+            }
+
             def find_min_clock_pulse_width(clock_pulse_polarity: bool, rising_data_edge: bool):
                 min_clock_pulse_width, delay = seq.find_minimum_clock_pulse_width(
                     cell_config=cell_conf,
@@ -176,7 +143,7 @@ def characterize_flip_flop_output(
                     data_out=data_out_pin,
                     setup_time=2e-9,  # Choose a reasonably large setup time.
                     clock_pulse_polarity=clock_pulse_polarity,
-                    rising_data_edge=rising_data_edge,
+                    rising_data_edge_in=rising_data_edge,
                     clock_rise_time=10e-12,  # TODO: Something fails when 0.
                     clock_fall_time=10e-12,  # TODO: How to choose this?
                     output_load_capacitances={data_out_pin: 0},
@@ -278,6 +245,7 @@ def characterize_flip_flop_output(
         
         output_function = cell_type.outputs[data_out_pin].function
         logger.info(f"Output function: {output_function}")
+
         
         # Convert output pin to string
         data_out_pin_name = str(data_out_pin)
@@ -286,17 +254,38 @@ def characterize_flip_flop_output(
         output_pin_group.set_boolean_function('function', output_function)
         related_pin = clock_pin
         
-        # Find data input pins which can control the output pin.
-        possible_input_pins = seq_recognition.find_flipflop_state_control_and_observe_pins(
-                                        cell_type, preset_clear_input
-                                    )
-
-        assert len(possible_input_pins) > 0, "No input pin found which can control the flip-flop state."
+        assert len(static_inputs_and_observer_outputs) > 0, "No input pin found which can control the flip-flop state."
             
         # Select an input pin and a combination of other input values such that the input pin controls output of the flip-flop.
-        data_in_pin, static_input_values, observer_outputs = possible_input_pins[0]
+        data_in_pin, static_input_values, observer_outputs, _when_other_inputs = static_inputs_and_observer_outputs[0]
 
         assert data_out_pin in observer_outputs, f"Flip-flop state is not observable from {data_out_pin} when {static_input_values}."
+        
+        # Determine if this output is the inverse of the internal state given the current static assignments of the other inputs.
+        assignment = static_input_values.copy()
+        assignment.update({cell_type.internal_state: False, cell_type.internal_state_n: True})
+        is_output_inverted = output_function.subs({var: val for var, val in assignment.items() if var is not None})
+
+        # Determine if the non-inverted internal state is really not inverted (it might be inverted).
+        input0 = static_input_values.copy()
+        input1 = static_input_values.copy()
+        input0[data_in_pin] = False
+        input1[data_in_pin] = True
+        
+        next_state_input0 = cell_type.next_state.subs(input0)
+        next_state_input1 = cell_type.next_state.subs(input1)
+
+        # Sanity check.
+        assert next_state_input0 != next_state_input1, f"state is not controllable by input {data_in_pin} with {static_input_values}" # Should not happen because the input values are chosen such that the state is controllable.
+            
+        # If data is 0 and state becomes 1, then the state is inverted.
+        is_state_inverted = next_state_input0 
+        
+        # Determine if the current output is the inverse of the data input.
+        inverted_output = is_state_inverted ^ is_output_inverted
+        assert inverted_output in [sympy.false, sympy.true], f"Can't determine inversion of output from the output function: {output_function}"
+        # Convert to bool.
+        inverted_output = bool(inverted_output)
 
         # Translate logic values to voltages.
         static_input_voltages = {
@@ -335,7 +324,8 @@ def characterize_flip_flop_output(
                 setup_time,
                 hold_time,
                 clock_cycle_hint,
-                static_input_voltages
+                static_input_voltages,
+                inverted_output=inverted_output,
             )
             return delay, slew_time
       

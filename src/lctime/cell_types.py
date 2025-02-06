@@ -72,6 +72,7 @@ class SingleEdgeDFF(CellType):
         super().__init__()
 
         self.internal_state: sympy.Symbol = None
+        self.internal_state_n: sympy.Symbol = None # TODO: Is this necessary? Or can it be avoided by substituting any references to this with `!internal_state`.
         """
         Variable for the current internal state.
         """
