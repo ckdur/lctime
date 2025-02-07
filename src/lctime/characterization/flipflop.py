@@ -26,7 +26,9 @@ def characterize_flip_flop_output(
     logger.info("Characterize single-edge triggered flip-flop.")
 
     if related_pin_transition is None:
-        abort("Need to specify 'related-pin-transition' for the clock pin.")
+        logger.error("'related-pin-transition' is not specified for the clock pin.")
+
+    assert related_pin_transition is not None, "'related-pin-transition' is not specified for the clock pin."
 
     # Create or update the 'ff' group.
     ff_groups = new_cell_group.get_groups('ff')
