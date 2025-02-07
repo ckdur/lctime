@@ -9,7 +9,7 @@ set -e
 
 # Characterize the INVX1 cell and write the output into invx1.lib.
 
-NETLIST_DIR="../test_data/freepdk45/netlists_pex"
+NETLIST_DIR="../../test_data/freepdk45/netlists_pex"
 
 # Guide the characterization based on a template liberty file which contains a specification of the cell pins.
 lctime --liberty invx1_template.lib \
