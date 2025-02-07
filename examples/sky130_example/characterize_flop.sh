@@ -5,4 +5,8 @@
 
 set -e
 
-lctime --liberty template.lib --library "/foss/pdks/sky130A/libs.tech/combined/sky130.lib.spice tt" --output-loads "$2" --slew-times "$3" --spice $1.spice --cell $1 --output ./test.lib --related-pin-transition "$4"
+if [ ! "$PDK_ROOT" ]; then
+	echo WARN: PDK_ROOT environment variable is not set
+fi
+
+lctime --liberty template.lib --library "$PDK_ROOT/sky130A/libs.tech/combined/sky130.lib.spice tt" --output-loads "$2" --slew-times "$3" --spice $1.spice --cell $1 --output ./test.lib --related-pin-transition "$4"
