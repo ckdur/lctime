@@ -1190,63 +1190,98 @@ def characterize_combinational_output(
             # Find assignments of the other input pins such that
             # the output is positive unate / negative unate.
             pos_unate_values, neg_unate_values = find_unateness_conditions(f, related_pin)
-            logger.info(f"{related_pin} is positive unate when {pos_unate_values}")
-            logger.info(f"{related_pin} is negative unate when {neg_unate_values}")
+            pos_unate_values = [v for v in pos_unate_values if v != False]
+            neg_unate_values = [v for v in neg_unate_values if v != False]
+            
+            if pos_unate_values:
+                logger.info(f"{related_pin}->{output_pin_name} is positive unate when {pos_unate_values}")
+            if neg_unate_values:
+                logger.info(f"{related_pin}->{output_pin_name} is negative unate when {neg_unate_values}")
 
-            # Get timing sense of this arc.
+            if not pos_unate_values and not neg_unate_values:
+                # If this happens, then maybe something is wrong with the code here.
+                log.warning(f"Timing arc {related_pin}->{output_pin_name} can never be activated.")
+
+            timing_senses = {
+                "positive_unate": pos_unate_values,
+                "negative_unate": neg_unate_values,
+            }
+
+            # Consistency check.
             timing_sense = str(is_unate_in_xi(output_functions[output_pin_name], related_pin).name).lower()
-            logger.info("Timing sense: {}".format(timing_sense))
+            if pos_unate_values and neg_unate_values:
+                assert timing_sense == 'non_unate'
+            if pos_unate_values and not neg_unate_values:
+                assert timing_sense == 'positive_unate'
+            if not pos_unate_values and neg_unate_values:
+                assert timing_sense == 'negative_unate'
 
-            result = characterize_comb_cell(
-                input_pins=_input_pins,
-                output_pin=output_pin_name,
-                related_pin=related_pin,
-                output_functions=output_functions,
+            # Collect timing and power tables for all timing senses.
+            results = dict()
+            
+            index_1 = None
+            index_2 = None
 
-                total_output_net_capacitance=output_capacitances,
-                input_net_transition=input_transition_times,
+            # Compute timing tables for all possible timing senses (positive/negative unate).
+            for timing_sense, static_input_patterns in timing_senses.items():
+                if not static_input_patterns:
+                    # skip
+                    continue
+                logger.info("Timing sense: {}".format(timing_sense))
 
-                cell_conf=cell_conf,
-                constant_inputs=constant_input_pins
-            )
+                result = characterize_comb_cell(
+                    input_pins=_input_pins,
+                    output_pin=output_pin_name,
+                    related_pin=related_pin,
+                    output_functions=output_functions,
 
-            # Get the table indices.
-            # TODO: get correct index/variable mapping from liberty file.
-            index_1 = result['total_output_net_capacitance'] / conf.capacitance_unit
-            index_2 = result['input_net_transition'] / conf.time_unit
+                    total_output_net_capacitance=output_capacitances,
+                    input_net_transition=input_transition_times,
 
-            # Create template tables.
-            delay_template_table = liberty_util.create_delay_template_table(new_library, len(index_1), len(index_2))
-            delay_table_template_name = delay_template_table.args[0]
-
-            # Create liberty timing tables.
-            timing_tables = []
-            for table_name in ['cell_rise', 'cell_fall', 'rise_transition', 'fall_transition']:
-                table = Group(
-                    table_name,
-                    args=[delay_table_template_name],
+                    cell_conf=cell_conf,
+                    constant_inputs=constant_input_pins
                 )
 
-                table.set_array('index_1', index_1)
-                table.set_array('index_2', index_2)
-                table.set_array('values', result[table_name] / conf.time_unit)
+                # Store result for computation of power tables.
+                results[timing_sense] = result
 
-                timing_tables.append(table)
+                # Get the table indices.
+                # TODO: get correct index/variable mapping from liberty file.
+                index_1 = result['total_output_net_capacitance'] / conf.capacitance_unit
+                index_2 = result['input_net_transition'] / conf.time_unit
 
-            # Create the liberty timing group.
-            timing_attributes = [
-                Attribute('related_pin', EscapedString(related_pin)),
-                Attribute('timing_sense', timing_sense)
-            ]
+                # Create template tables.
+                delay_template_table = liberty_util.create_delay_template_table(new_library, len(index_1), len(index_2))
+                delay_table_template_name = delay_template_table.args[0]
 
-            timing_group = Group(
-                'timing',
-                attributes=timing_attributes,
-                groups=timing_tables
-            )
+                # Create liberty timing tables.
+                timing_tables = []
+                for table_name in ['cell_rise', 'cell_fall', 'rise_transition', 'fall_transition']:
+                    table = Group(
+                        table_name,
+                        args=[delay_table_template_name],
+                    )
 
-            # Attach timing group to output pin group.
-            output_pin_group.groups.append(timing_group)
+                    table.set_array('index_1', index_1)
+                    table.set_array('index_2', index_2)
+                    table.set_array('values', result[table_name] / conf.time_unit)
+
+                    timing_tables.append(table)
+
+                # Create the liberty timing group.
+                timing_attributes = [
+                    Attribute('related_pin', EscapedString(related_pin)),
+                    Attribute('timing_sense', timing_sense)
+                ]
+
+                timing_group = Group(
+                    'timing',
+                    attributes=timing_attributes,
+                    groups=timing_tables
+                )
+
+                # Attach timing group to output pin group.
+                output_pin_group.groups.append(timing_group)
 
             # Create template tables.
             power_template_table = liberty_util.create_power_template_table(new_library, len(index_1), len(index_2))
@@ -1255,14 +1290,27 @@ def characterize_combinational_output(
             # Create liberty power tables.
             power_tables = []
             for table_name in ['rise_power', 'fall_power']:
+                
+                # Summarize power tables.
+                power_tables_raw = []
+                for result in results.values():
+                    assert isinstance(result[table_name], np.ndarray) # Sanity check
+                    power_tables_raw.append(result[table_name])
+
+                power_table_raw = np.mean(np.array(power_tables_raw), axis=0) # TODO: it should be a weighted mean or something else
+                    
                 table = Group(
                     table_name,
                     args=[power_table_template_name],
                 )
 
+                assert index_1 is not None
+                assert index_2 is not None
+                assert power_table_raw.shape == (len(index_1), len(index_2)), "dimension mismatch"
+
                 table.set_array('index_1', index_1)
                 table.set_array('index_2', index_2)
-                table.set_array('values', result[table_name] / conf.energy_unit)
+                table.set_array('values', power_table_raw / conf.energy_unit)
 
                 power_tables.append(table)
 
