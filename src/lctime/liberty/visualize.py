@@ -80,7 +80,7 @@ def plot3d(x_axis: np.ndarray, y_axis: np.ndarray, z_data: np.ndarray,
     xx, yy = np.meshgrid(x_axis, y_axis)
 
     fig = plt.figure()
-    ax = fig.gca(projection='3d')
+    ax = fig.add_subplot(1, 1, 1, projection='3d')
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     ax.set_zlabel(z_label)
