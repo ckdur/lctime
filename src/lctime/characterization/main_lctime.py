@@ -896,6 +896,12 @@ class CellSetup:
             self.input_pins_non_inverted
         )
 
+        # Specify power and ground pins.
+        create_pg_pin_groups(
+            new_cell_group,
+            cell_conf,
+        )
+
         # Measure input pin capacitances.
         measure_input_capacitances(
             self.lctime.conf,
@@ -1081,6 +1087,27 @@ def create_missing_pin_groups(
         if input_pin_inverted:
             input_pin_group['complementary_pin'] = [EscapedString(input_pin_inverted)]
 
+
+def create_pg_pin_groups(
+        new_cell_group: Group,
+        cell_conf: CellConfig,
+):
+    """
+    Create the pg_pin groups which specify power/ground/pwell/nwell pins.
+    """
+
+    primary_power = Group("pg_pin", args=[cell_conf.supply_net])
+    primary_power["pg_type"] = EscapedString("primary_power")
+    primary_power["voltage_name"] = EscapedString(cell_conf.supply_net)
+    # TODO: primary_power["related_bias_pin"] = 
+
+    primary_ground = Group("pg_pin", args=[cell_conf.ground_net])
+    primary_ground["pg_type"] = EscapedString("primary_ground")
+    primary_ground["voltage_name"] = EscapedString(cell_conf.ground_net)
+    # TODO: primary_ground["related_bias_pin"] = 
+
+    new_cell_group.groups.append(primary_power)
+    new_cell_group.groups.append(primary_ground)
 
 def measure_input_capacitances(
         conf: CharacterizationConfig,
