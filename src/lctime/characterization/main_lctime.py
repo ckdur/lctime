@@ -705,7 +705,23 @@ class CellSetup:
         """
         return self.lctime.netlist_file_table[self.cell_name]
 
+    def get_pg_pin_name_from_liberty(self, pg_type: str) -> str:
+        """
+        Get the specified power pin from the liberty structure, if present.
+        """
+        for pg_pin in self.cell_group.get_groups("pg_pin"):
+            if pg_pin.get("pg_type") == pg_type:
+                if len(pg_pin.args) != 1:
+                    raise Exception(f"pg_pin group must have 1 argument but has {len(pg_pin.args)}")
+                return pg_pin.args[0]
+        return None
+        
     def vdd_pin(self):
+        # Get the primary power pin from the liberty, if present.
+        p = self.get_pg_pin_name_from_liberty("primary_power")
+        if p:
+            return p
+
         # TODO: don't decide based only on net name.
         power_pins = self.power_pins()
         assert len(power_pins) == 2, "Expected to have 2 power pins."
@@ -714,12 +730,31 @@ class CellSetup:
         return vdd_pins[0]
     
     def gnd_pin(self):
+        # Get the primary ground pin from the liberty, if present.
+        p = self.get_pg_pin_name_from_liberty("primary_ground")
+        if p:
+            return p
+        
         # TODO: don't decide based only on net name.
         power_pins = self.power_pins()
         assert len(power_pins) == 2, "Expected to have 2 power pins."
         gnd_pins = [p for p in power_pins if net_util.is_ground_net(p)]
         assert len(gnd_pins) == 1, "Expected to find one GND pin but found: {}".format(gnd_pins)
         return gnd_pins[0]
+
+    def pwell_pin(self):
+        # Get the pwell pin from the liberty, if present.
+        p = self.get_pg_pin_name_from_liberty("pwell")
+        if p:
+            return p
+        raise Exception("pwell pin is not known") # TODO: find pwell pin
+    
+    def nwell_pin(self):
+        # Get the nwell pin from the liberty, if present.
+        p = self.get_pg_pin_name_from_liberty("nwell")
+        if p:
+            return p
+        raise Exception("nwell pin is not known") # TODO: find nwell pin
         
         
     def power_pins(self) -> List[str]:
@@ -783,6 +818,7 @@ class CellSetup:
             t.source_net = self.fix_case(t.source_net)
             t.drain_net = self.fix_case(t.drain_net)
             t.gate_net = self.fix_case(t.gate_net)
+            t.body_net = self.fix_case(t.body_net)
 
         # Convert the transistor network into its multi-graph representation.
         # This is used for a formal analysis of the network.

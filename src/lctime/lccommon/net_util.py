@@ -202,12 +202,14 @@ def extract_transistors(circuit: db.Circuit, force_lowercase: bool = False) -> T
     id_gate_4 = mos4.terminal_id('G')
     id_source_4 = mos4.terminal_id('S')
     id_drain_4 = mos4.terminal_id('D')
+    id_body_4 = mos4.terminal_id('B')
 
     transistors_klayout = [
         Transistor(get_channel_type(d.device_class().name),
                    f(d.net_for_terminal(id_source_4).name),
                    f(d.net_for_terminal(id_gate_4).name),
                    f(d.net_for_terminal(id_drain_4).name),
+                   body_net=f(d.net_for_terminal(id_body_4).name),
                    channel_width=d.parameter('W') * 1e-6,  # Convert into micrometers.
                    name=d.name
                    )
