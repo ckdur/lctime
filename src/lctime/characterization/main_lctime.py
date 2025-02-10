@@ -10,6 +10,7 @@ import os
 import argparse
 import joblib
 import tempfile
+from collections import Counter
 from typing import List, Set
 
 import liberty.parser as liberty_parser
@@ -34,6 +35,7 @@ from copy import deepcopy
 
 from ..lccommon import net_util
 from ..lccommon.net_util import load_transistor_netlist, is_ground_net, is_supply_net
+from ..lccommon.data_types import Transistor, ChannelType
 import networkx as nx
 from sympy.logic import satisfiable
 import sympy.logic.boolalg
@@ -567,6 +569,10 @@ class CellSetup:
         self.cell_type_liberty = None
         "Cell type as derived from liberty file."
         self.cell_type = None
+        self.transistors_abstract: List[Transistor] = None
+        "List of transistors which make the circuit of the cell"
+        self.well_pins: Dict[str, str] = dict()
+        "power/ground/well nets"
 
     def init_workdir(self):
         """
@@ -744,17 +750,25 @@ class CellSetup:
 
     def pwell_pin(self):
         # Get the pwell pin from the liberty, if present.
-        p = self.get_pg_pin_name_from_liberty("pwell")
-        if p:
+        p_lib = self.get_pg_pin_name_from_liberty("pwell")
+        p_rec = self.well_pins.get("pwell")
+        if p_lib:
+            if p_rec and p_rec != p_lib:
+                logger.warning(f"recognized pwell pin {p_rec} does not match the pwell pin defined in the liberty file {p_lib}")
             return p
-        raise Exception("pwell pin is not known") # TODO: find pwell pin
+        
+        return p_rec
     
     def nwell_pin(self):
         # Get the nwell pin from the liberty, if present.
-        p = self.get_pg_pin_name_from_liberty("nwell")
-        if p:
+        p_lib = self.get_pg_pin_name_from_liberty("nwell")
+        p_rec = self.well_pins.get("nwell")      
+        if p_lib:
+            if p_rec and p_rec != p_lib:
+                logger.warning(f"recognized nwell pin {p_rec} does not match the nwell pin defined in the liberty file {p_lib}")
             return p
-        raise Exception("nwell pin is not known") # TODO: find nwell pin
+        
+        return p_rec
         
         
     def power_pins(self) -> List[str]:
@@ -790,11 +804,12 @@ class CellSetup:
         """
         Get data pins, i.e. all pins which are not power pins.
         """
+        # TODO: replace this heuristic by something more thorough
         return net_util.get_io_pins(self.cell_pins)
 
     def load_netlist(self):
         """ Load netlist of cell
-        Populate the self.transistor_graph variable.
+        Populate the self.transistors_abstract variable.
         """
         # TODO: Load all netlists at the beginning of lctime to detect errors early.
         # Get netlist and liberty group.
@@ -820,18 +835,55 @@ class CellSetup:
             t.gate_net = self.fix_case(t.gate_net)
             t.body_net = self.fix_case(t.body_net)
 
-        # Convert the transistor network into its multi-graph representation.
-        # This is used for a formal analysis of the network.
-        self.transistor_graph = _transistors2multigraph(transistors_abstract)
+        self.transistors_abstract = transistors_abstract
+
+    def _recognize_well_pins(self) -> Dict[str, str]:
+        """
+        Detect nwell/pwell pins from the transistor network.
+        """
+        assert self.transistors_abstract is not None
         
+        all_spice_pins = set(self.cell_pins)
+        
+        nmos_body = Counter(t.body_net for t in self.transistors_abstract if t.channel_type == ChannelType.NMOS)
+        pmos_body = Counter(t.body_net for t in self.transistors_abstract if t.channel_type == ChannelType.PMOS)
+
+        nets = {"nwell": None, "pwell": None}
+
+        # Take only nets which are also a pin.
+        nmos_body = [n for n, _ in nmos_body.most_common() if n in all_spice_pins]
+        pmos_body = [n for n, _ in pmos_body.most_common() if n in all_spice_pins]
+        
+        if nmos_body:
+            nwell_net = nmos_body[0]
+            logger.info(f"Detected nwell pin: {nwell_net}")
+            nets["nwell"] = nwell_net
+
+        if pmos_body:
+            pwell_net = pmos_body[0]
+            logger.info(f"Detected pwell pin: {pwell_net}")
+            nets["pwell"] = pwell_net
+
+        return nets
+
+    def _transistor_graph(self) -> nx.MultiGraph:
+        """
+        Get the network of transistors in the form of a networkx graph.
+
+        Convert the transistor network into its multi-graph representation.
+        This is used for a formal analysis of the network.
+        """
+        assert self.transistors_abstract is not None
+        return _transistors2multigraph(self.transistors_abstract)
 
     def recognize_input_pins(self):
         """
         Dectect input pins / gates by analyzing the transistor network.
         """
-        
+
+
         logger.debug("Detect input nets from the circuit.")
-        detected_inputs = functional_abstraction.find_input_gates(self.transistor_graph)
+        detected_inputs = functional_abstraction.find_input_gates(self._transistor_graph())
         # Detect nets that must be inputs (connected to gates only but do not
         # appear in the list of pins in the SPICE circuit definition.
         all_spice_pins = set(self.cell_pins)
@@ -853,8 +905,13 @@ class CellSetup:
             logger.info(f"Also include detected pins: {', '.join(sorted(diff))}")
             self.input_pins.extend(diff)
 
+        logger.debug("Detect power/ground pins from the circuit")
+        self.well_pins = self._recognize_well_pins()
+
+        power_pins = {self.vdd_pin(), self.gnd_pin(), self.nwell_pin(), self.pwell_pin()}
+
         # Find pins that are defined in the SPICE circuit but are not inputs nor power.
-        maybe_outputs = all_spice_pins - set(self.input_pins) - set(self.power_pins()) - set(self.output_pins)
+        maybe_outputs = all_spice_pins - set(self.input_pins) - power_pins - set(self.output_pins)
         if maybe_outputs:
             logger.info(f"Potential output pins: {', '.join(sorted(maybe_outputs))}")
             self.output_pins.extend(maybe_outputs)
@@ -868,7 +925,7 @@ class CellSetup:
             self.cell_type = analyze_boolean_functions(
                 self.cell_type,
                 self.cell_group,
-                self.transistor_graph,
+                self._transistor_graph(),
                 self.io_pins(),
                 self.differential_inputs,
                 self.vdd_pin(),
