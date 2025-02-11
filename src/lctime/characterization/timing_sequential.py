@@ -232,12 +232,12 @@ def find_minimum_clock_pulse_width(
             })
 
             # Add nwell voltage
-            if cell_conf.nwell_pin is not None:
-                input_voltages[cell_conf.nwell_pin] = 0.0
+            if cell_config.nwell_pin is not None:
+                input_voltages[cell_config.nwell_pin] = 0.0
                 
             # Add pwell voltage
-            if cell_conf.pwell_pin is not None:
-                input_voltages[cell_conf.pwell_pin] = cfg.supply_voltage
+            if cell_config.pwell_pin is not None:
+                input_voltages[cell_config.pwell_pin] = cfg.supply_voltage
 
             # Initial voltages of output nodes.
             initial_conditions = {
