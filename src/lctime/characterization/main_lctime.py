@@ -1200,18 +1200,32 @@ def create_pg_pin_groups(
     """
 
     # TODO: What if this pg_pin group already exists?
-    primary_power = Group("pg_pin", args=[cell_conf.supply_net])
-    primary_power["pg_type"] = EscapedString("primary_power")
-    primary_power["voltage_name"] = EscapedString(cell_conf.supply_net)
-    # TODO: primary_power["related_bias_pin"] = 
+    if not new_cell_group.get_groups("pg_pin", cell_conf.supply_net):
+        primary_power = Group("pg_pin", args=[cell_conf.supply_net])
+        primary_power["pg_type"] = EscapedString("primary_power")
+        primary_power["voltage_name"] = EscapedString(cell_conf.supply_net)
+        # TODO: primary_power["related_bias_pin"] = 
+        new_cell_group.groups.append(primary_power)
 
-    primary_ground = Group("pg_pin", args=[cell_conf.ground_net])
-    primary_ground["pg_type"] = EscapedString("primary_ground")
-    primary_ground["voltage_name"] = EscapedString(cell_conf.ground_net)
-    # TODO: primary_ground["related_bias_pin"] = 
+    if not new_cell_group.get_groups("pg_pin", cell_conf.ground_net):
+        primary_ground = Group("pg_pin", args=[cell_conf.ground_net])
+        primary_ground["pg_type"] = EscapedString("primary_ground")
+        primary_ground["voltage_name"] = EscapedString(cell_conf.ground_net)
+        # TODO: primary_ground["related_bias_pin"] = 
+        new_cell_group.groups.append(primary_ground)
 
-    new_cell_group.groups.append(primary_power)
-    new_cell_group.groups.append(primary_ground)
+    if not new_cell_group.get_groups("pg_pin", cell_conf.nwell_pin):
+        nwell = Group("pg_pin", args=[cell_conf.nwell_pin])
+        nwell["pg_type"] = EscapedString("nwell")
+        nwell["voltage_name"] = EscapedString(cell_conf.nwell_pin)
+        new_cell_group.groups.append(nwell)
+
+    if not new_cell_group.get_groups("pg_pin", cell_conf.pwell_pin):
+        pwell = Group("pg_pin", args=[cell_conf.pwell_pin])
+        pwell["pg_type"] = EscapedString("pwell")
+        pwell["voltage_name"] = EscapedString(cell_conf.pwell_pin)
+        new_cell_group.groups.append(pwell)
+
 
 def measure_input_capacitances(
         conf: CharacterizationConfig,
