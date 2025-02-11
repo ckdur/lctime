@@ -84,7 +84,7 @@ def characterize_input_capacitances(
 
     # Add output load capacitance. Right now this is 1fF.
     output_load_statements = "\n".join((f"Cload_{p} {p} {cell_conf.ground_net} 1f" for p in output_pins))
-
+        
     # Choose a maximum time to run the simulation.
     time_max = cfg.time_step * 1e6
 
@@ -137,7 +137,15 @@ def characterize_input_capacitances(
                     # Add the inverted input voltage.
                     input_voltages[inv] = cfg.supply_voltage - input_voltages[p]
 
-            logger.debug("Static input voltages: {}".format(input_voltages))
+            # Add nwell voltage
+            if cell_conf.nwell_pin is not None:
+                input_voltages[cell_conf.nwell_pin] = 0.0
+                
+            # Add pwell voltage
+            if cell_conf.pwell_pin is not None:
+                input_voltages[cell_conf.pwell_pin] = cfg.supply_voltage
+
+            logger.info("Static input voltages: {}".format(input_voltages))
 
             # Simulation script file path.
             file_name = f"lctime_input_capacitance_" \

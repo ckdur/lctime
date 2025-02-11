@@ -231,6 +231,14 @@ def find_minimum_clock_pulse_width(
                 data_in: input_signal
             })
 
+            # Add nwell voltage
+            if cell_conf.nwell_pin is not None:
+                input_voltages[cell_conf.nwell_pin] = 0.0
+                
+            # Add pwell voltage
+            if cell_conf.pwell_pin is not None:
+                input_voltages[cell_conf.pwell_pin] = cfg.supply_voltage
+
             # Initial voltages of output nodes.
             initial_conditions = {
                 data_out: cfg.supply_voltage - input_signal(0)  # The inverse of data_in.

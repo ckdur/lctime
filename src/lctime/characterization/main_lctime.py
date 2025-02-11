@@ -696,6 +696,8 @@ class CellSetup:
         cell_conf.complementary_pins = self.differential_inputs
         cell_conf.ground_net = self.gnd_pin()
         cell_conf.supply_net = self.vdd_pin()
+        cell_conf.pwell_pin = self.pwell_pin()
+        cell_conf.nwell_pin = self.nwell_pin()
         cell_conf.workingdir = self.cell_workingdir
         cell_conf.spice_netlist_file = self.lctime.netlist_file_table[self.cell_name]
         
@@ -752,23 +754,33 @@ class CellSetup:
         # Get the pwell pin from the liberty, if present.
         p_lib = self.get_pg_pin_name_from_liberty("pwell")
         p_rec = self.well_pins.get("pwell")
+        p = p_rec
         if p_lib:
             if p_rec and p_rec != p_lib:
                 logger.warning(f"recognized pwell pin {p_rec} does not match the pwell pin defined in the liberty file {p_lib}")
-            return p
-        
-        return p_rec
-    
+            p = p_lib
+
+        if p == self.vdd_pin():
+            # pwell is connected via VDD pin
+            return None
+
+        return p
+
     def nwell_pin(self):
         # Get the nwell pin from the liberty, if present.
         p_lib = self.get_pg_pin_name_from_liberty("nwell")
-        p_rec = self.well_pins.get("nwell")      
+        p_rec = self.well_pins.get("nwell")
+        p = p_rec
         if p_lib:
             if p_rec and p_rec != p_lib:
                 logger.warning(f"recognized nwell pin {p_rec} does not match the nwell pin defined in the liberty file {p_lib}")
-            return p
-        
-        return p_rec
+            p = p_lib
+
+        if p == self.gnd_pin():
+            # nwell is connected via VDD pin
+            return None
+
+        return p
         
         
     def power_pins(self) -> List[str]:
@@ -905,9 +917,6 @@ class CellSetup:
             logger.info(f"Also include detected pins: {', '.join(sorted(diff))}")
             self.input_pins.extend(diff)
 
-        logger.debug("Detect power/ground pins from the circuit")
-        self.well_pins = self._recognize_well_pins()
-
         power_pins = {self.vdd_pin(), self.gnd_pin(), self.nwell_pin(), self.pwell_pin()}
 
         # Find pins that are defined in the SPICE circuit but are not inputs nor power.
@@ -952,6 +961,7 @@ class CellSetup:
 
         # Detect input nets from the transistor netlist (if enabled).
         if self.lctime.args.analyze_cell_function:
+            self.well_pins = self._recognize_well_pins()
             self.recognize_input_pins()
             
         # Sanity check.
@@ -1189,6 +1199,7 @@ def create_pg_pin_groups(
     Create the pg_pin groups which specify power/ground/pwell/nwell pins.
     """
 
+    # TODO: What if this pg_pin group already exists?
     primary_power = Group("pg_pin", args=[cell_conf.supply_net])
     primary_power["pg_type"] = EscapedString("primary_power")
     primary_power["voltage_name"] = EscapedString(cell_conf.supply_net)

@@ -163,6 +163,15 @@ def characterize_comb_cell(
             input_voltages = {net: cfg.supply_voltage * value for net, value in zip(static_input_nets, static_input)}
             # Add supply voltage.
             input_voltages[cell_conf.supply_net] = cfg.supply_voltage
+            
+            # Add nwell voltage
+            if cell_conf.nwell_pin is not None:
+                input_voltages[cell_conf.nwell_pin] = 0.0
+                
+            # Add pwell voltage
+            if cell_conf.pwell_pin is not None:
+                input_voltages[cell_conf.pwell_pin] = cfg.supply_voltage
+                
             # Add input voltages for inverted inputs of differential pairs.
             for p in static_input_nets:
                 inv = cell_conf.complementary_pins.get(p)

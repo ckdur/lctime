@@ -77,6 +77,12 @@ class CellConfig:
         self.supply_net: str = 'VDD'
         "Name of the power supply net."
 
+        self.nwell_pin: str = None
+        "Name of the nwell pin, if it exists."
+
+        self.pwell_pin: str = None
+        "Name of the pwell pin, if it exists."
+
 
 class CharacterizationConfig:
     """
