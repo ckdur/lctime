@@ -145,7 +145,7 @@ def characterize_input_capacitances(
             if cell_conf.pwell_pin is not None:
                 input_voltages[cell_conf.pwell_pin] = cfg.supply_voltage
 
-            logger.info("Static input voltages: {}".format(input_voltages))
+            logger.debug("Static input voltages: {}".format(input_voltages))
 
             # Simulation script file path.
             file_name = f"lctime_input_capacitance_" \
