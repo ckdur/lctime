@@ -164,12 +164,6 @@ def extract_transistors(circuit: db.Circuit, force_lowercase: bool = False) -> T
     if force_lowercase:
         f = lambda s: s.lower()
 
-    if circuit is None:
-        all_circuits = [c.name for c in netlist.each_circuit()]
-        logger.error("No such circuit: {}".format(circuit_name))
-        logger.info(f"Circuits in netlist: {all_circuits}")
-        raise Exception("No such circuit: {}".format(circuit_name))
-
     # Get pin names.
     pins = [p.name() for p in circuit.each_pin()]
 

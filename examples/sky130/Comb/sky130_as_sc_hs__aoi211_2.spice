@@ -1,8 +1,6 @@
 * NGSPICE file created from sky130_as_sc_hs__aoi211_2.ext - technology: sky130A
 
-.subckt sky130_as_sc_hs__aoi211_2 VPB VPWR VGND A B C D Y
-R1122 VPB VPWR 0
-R1111 VNB VGND 0
+.subckt sky130_as_sc_hs__aoi211_2 VPB VNB VPWR VGND A B C D Y
 X0 VGND.t5 A.t0 a_27_49# VNB.t7 sky130_fd_pr__nfet_01v8_lvt ad=0.0903 pd=0.925 as=0.17093 ps=1.82 w=0.645 l=0.15
 X1 Y.t7 C.t0 VGND.t3 VNB.t3 sky130_fd_pr__nfet_01v8_lvt ad=0.0903 pd=0.925 as=0.17093 ps=1.82 w=0.645 l=0.15
 X2 VPWR.t3 A.t1 a_110_298# VPB.t5 sky130_fd_pr__pfet_01v8 ad=0.1386 pd=1.27 as=0.1386 ps=1.27 w=0.99 l=0.15
