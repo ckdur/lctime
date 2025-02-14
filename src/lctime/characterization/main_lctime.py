@@ -1391,6 +1391,13 @@ def characterize_combinational_output(
                 if not static_input_patterns:
                     # skip
                     continue
+
+                # Convert pin names from sympy symbols to strings
+                static_input_patterns = [
+                    {str(k): v for k, v in pattern.items()}
+                    for pattern in static_input_patterns
+                ]
+                
                 logger.info("Timing sense: {}".format(timing_sense))
 
                 result = characterize_comb_cell(
@@ -1403,7 +1410,8 @@ def characterize_combinational_output(
                     input_net_transition=input_transition_times,
 
                     cell_conf=cell_conf,
-                    constant_inputs=constant_input_pins
+                    constant_inputs=constant_input_pins,
+                    static_input_patterns=static_input_patterns,
                 )
 
                 # Store result for computation of power tables.
