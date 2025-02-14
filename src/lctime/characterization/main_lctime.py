@@ -959,24 +959,6 @@ class CellSetup:
         self.init_case_lookup_table()
         self.load_netlist()
         self.check_pins()
-        
-        #from ..characterization.flatten import flatten_circuit
-        #flattened = flatten_circuit(
-        #    cell_name=self.cell_name,
-        #    spice_netlist_file=self.netlist_file_path(),
-        #    setup_statements=self.lctime.setup_statements,
-        #    workingdir=self.cell_workingdir
-        #)
-        #
-        #path = os.path.join(self.cell_workingdir, "flattened.sp")
-        #f = open(path, "w")
-        #f.write(flattened)
-        #f.close()
-        #print(flattened)
-
-        #transistors, pins = load_transistor_netlist(path, self.cell_name)
-        #print(transistors)
-        #assert False
 
         # Detect input nets from the transistor netlist (if enabled).
         if self.lctime.args.analyze_cell_function:
