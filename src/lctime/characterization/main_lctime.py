@@ -1394,10 +1394,10 @@ def characterize_combinational_output(
 
                 # Convert pin names from sympy symbols to strings
                 static_input_patterns = [
-                    {str(k): v for k, v in pattern.items()}
+                    {str(k): v for k, v in pattern.items() if k != True}
                     for pattern in static_input_patterns
                 ]
-                
+
                 logger.info("Timing sense: {}".format(timing_sense))
 
                 result = characterize_comb_cell(
