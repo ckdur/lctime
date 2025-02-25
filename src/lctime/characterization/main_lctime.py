@@ -761,7 +761,7 @@ class CellSetup:
                 logger.warning(f"recognized pwell pin {p_rec} does not match the pwell pin defined in the liberty file {p_lib}")
             p = p_lib
 
-        if p == self.vdd_pin():
+        if p == self.gnd_pin():
             # pwell is connected via VDD pin
             return None
 
@@ -777,7 +777,7 @@ class CellSetup:
                 logger.warning(f"recognized nwell pin {p_rec} does not match the nwell pin defined in the liberty file {p_lib}")
             p = p_lib
 
-        if p == self.gnd_pin():
+        if p == self.vdd_pin():
             # nwell is connected via VDD pin
             return None
 
@@ -868,13 +868,13 @@ class CellSetup:
         nmos_body = [n for n, _ in nmos_body.most_common() if n in all_spice_pins]
         pmos_body = [n for n, _ in pmos_body.most_common() if n in all_spice_pins]
         
-        if nmos_body:
-            nwell_net = nmos_body[0]
+        if pmos_body:
+            nwell_net = pmos_body[0]
             logger.info(f"Detected nwell pin: {nwell_net}")
             nets["nwell"] = nwell_net
 
-        if pmos_body:
-            pwell_net = pmos_body[0]
+        if nmos_body:
+            pwell_net = nmos_body[0]
             logger.info(f"Detected pwell pin: {pwell_net}")
             nets["pwell"] = pwell_net
 
