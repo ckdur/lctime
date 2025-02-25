@@ -1,8 +1,6 @@
 * NGSPICE file created from sky130_as_sc_hs__xnor2_2.ext - technology: sky130A
 
-.subckt sky130_as_sc_hs__xnor2_2 VPB VPWR VGND B A Y
-R1122 VPB VPWR 0
-R1111 VNB VGND 0
+.subckt sky130_as_sc_hs__xnor2_2 VPB VNB VPWR VGND B A Y
 X0 VGND.t1 B.t0 a_284_23# VNB.t2 sky130_fd_pr__nfet_01v8_lvt ad=0.129 pd=1.045 as=0.15802 ps=1.135 w=0.645 l=0.15
 X1 VGND.t0 A.t0 a_27_49# VNB.t0 sky130_fd_pr__nfet_01v8_lvt ad=0.09652 pd=0.915 as=0.15503 ps=1.7 w=0.585 l=0.15
 X2 a_314_49# a_284_23# a_196_347# VPB.t1 sky130_fd_pr__pfet_01v8 ad=0.297 pd=1.59 as=0.19697 ps=1.43 w=0.99 l=0.15
