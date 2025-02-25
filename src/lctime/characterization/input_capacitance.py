@@ -139,12 +139,12 @@ def characterize_input_capacitances(
 
             # Add nwell voltage
             if cell_conf.nwell_pin is not None:
-                input_voltages[cell_conf.nwell_pin] = 0.0
+                input_voltages[cell_conf.nwell_pin] = cfg.supply_voltage
                 
             # Add pwell voltage
             if cell_conf.pwell_pin is not None:
-                input_voltages[cell_conf.pwell_pin] = cfg.supply_voltage
-
+                input_voltages[cell_conf.pwell_pin] = 0.0
+                
             logger.debug("Static input voltages: {}".format(input_voltages))
 
             # Simulation script file path.

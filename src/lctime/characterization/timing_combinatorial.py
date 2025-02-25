@@ -166,11 +166,11 @@ def characterize_comb_cell(
             
             # Add nwell voltage
             if cell_conf.nwell_pin is not None:
-                input_voltages[cell_conf.nwell_pin] = 0.0
+                input_voltages[cell_conf.nwell_pin] = cfg.supply_voltage
                 
             # Add pwell voltage
             if cell_conf.pwell_pin is not None:
-                input_voltages[cell_conf.pwell_pin] = cfg.supply_voltage
+                input_voltages[cell_conf.pwell_pin] = 0.0
                 
             # Add input voltages for inverted inputs of differential pairs.
             for p in static_input_nets:
@@ -310,9 +310,6 @@ def characterize_comb_cell(
                 # There should be an edge in the output signal.
                 # Because the input signals have been chosen that way.
                 assert output_a != output_b, "Supplied boolean function and simulation are inconsistent."
-
-                # Check if output signal toggles.
-                assert output_a != output_b, "Output did not toggle."
 
                 output_rising = output_b
 
