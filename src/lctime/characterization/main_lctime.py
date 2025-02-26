@@ -765,6 +765,11 @@ class CellSetup:
             # pwell is connected via VDD pin
             return None
 
+        if p not in self.cell_pins:
+            # pwell pin might be defined in liberty file
+            # but not actually used in the cell.
+            return None
+
         return p
 
     def nwell_pin(self):
@@ -781,6 +786,11 @@ class CellSetup:
             # nwell is connected via VDD pin
             return None
 
+        if p not in self.cell_pins:
+            # nwell pin might be defined in liberty file
+            # but not actually used in the cell.
+            return None
+        
         return p
         
         
