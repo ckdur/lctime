@@ -178,9 +178,9 @@ def characterize_input_capacitances(
             for net, voltage in input_voltages.items():
                 input_resistance = 0 # A small input resistance. TODO: parametrize this for each input pin
                 static_supply_voltage_statements.extend([
-                    #f"Vinput_{net} {net} {cell_conf.ground_net} {voltage}", # Ideal voltage source
-                    f"Vinput_{net} {net}_ideal {cell_conf.ground_net} {voltage}", # Ideal voltage source
-                    f"Rinput_{net} {net}_ideal {net} {input_resistance}" # Input resistance.
+                    f"Vinput_{net} {net} {cell_conf.ground_net} {voltage}", # Ideal voltage source
+                    #f"Vinput_{net} {net}_ideal {cell_conf.ground_net} {voltage}", # Ideal voltage source
+                    #f"Rinput_{net} {net}_ideal {net} {input_resistance}" # Input resistance.
                 ])
                 
             # Convert to string.
