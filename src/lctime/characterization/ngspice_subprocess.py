@@ -124,35 +124,11 @@ def simulate_cell(
 
     logger.debug("Static input voltages: {}".format(sorted(list(input_voltages_static.keys()))))
     logger.debug("Dynamic input voltages: {}".format(sorted(list(input_voltages_active.keys()))))
-
-    def create_voltage_source_statement(net: str, voltage: Union[float, PieceWiseLinear]) -> str:
-        """
-        Create a SPICE statement for a voltage source driving the 'net' with a voltage.
-        The voltage can be either a static value or a `PieceWiseLinear` function.
-        """
-        if isinstance(voltage, PieceWiseLinear):
-            return f"V{net} {net} {ground_net} PWL({voltage.to_spice_pwl_string()}) DC=0"
-        elif isinstance(voltage, float):
-            return f"V{net} {net} {ground_net} {voltage}"
-        else:
-            assert False, "`voltage` must be either a float or {}".format(PieceWiseLinear)
-
-    # Create SPICE description of the input voltage sources.
-    active_signal_source_statements = "\n".join(
-        (
-            create_voltage_source_statement(net, wave)
-            for net, wave in input_voltages_active.items()
-        )
-    )
-
-    # Static inputs.
-    static_signal_source_statements = "\n".join(
-        (
-            create_voltage_source_statement(net, voltage)
-            for net, voltage in input_voltages_static.items()
-        )
-    )
-
+    
+    # Generate SPICE statements of input sources.
+    active_signal_source_statements = __generate_input_voltage_statements(ground_net, input_voltages_active)
+    static_signal_source_statements = __generate_input_voltage_statements(ground_net, input_voltages_static)
+    
     # Load capacitance statements.
     if output_load_capacitances is None:
         output_load_capacitances = dict()
@@ -171,16 +147,24 @@ def simulate_cell(
     # Calculate initial conditions for all sources.
     for net, voltage in input_voltages.items():
         if isinstance(voltage, PieceWiseLinear):
-            initial_conditions[net] = voltage(0)
+            initial_conditions[net+"_ideal"] = voltage(0)
         else:
             assert isinstance(voltage, float)
-            initial_conditions[net] = voltage
+            initial_conditions[net+"_ideal"] = voltage
 
     # Format breakpoint statements.
     breakpoint_statements = '\n'.join(breakpoint_statements)
 
+    # Append _ideal suffix to input voltages.
+    output_nets = []
+    for net in output_voltages:
+        if net in input_voltages:
+            output_nets.append(net + "_ideal")
+        else:
+            output_nets.append(net)
+
     # Generate output definitions for voltages.
-    output_voltage_defs = " ".join((f"v({v})" for v in output_voltages))
+    output_voltage_defs = " ".join((f"v({v})" for v in output_nets))
 
     # Can measure currents only through sources.
     # Check that specified output currents match with specified voltage sources.
@@ -192,7 +176,7 @@ def simulate_cell(
             assert False, msg
 
     # Generate output definitions for currents.
-    output_current_defs = " ".join((f"i(v{source})" for source in output_currents))
+    output_current_defs = " ".join((f"i(v{source}_ideal)" for source in output_currents))
 
     # Create ngspice simulation script.
     sim_netlist = f"""* librecell {__name__}
@@ -283,6 +267,29 @@ exit
 
     return time, voltages, currents
 
+def __generate_input_voltage_statements(ground_net: str, input_voltages: Dict[str, Union[float, PieceWiseLinear]]) -> str:
+    # Generate SPICE statements for input voltages.
+    source_statements = []
+    for net, wave in input_voltages.items():
+        assert isinstance(wave, float) or isinstance(wave, PieceWiseLinear)
+        input_resistance = 1 # A small input resistance. TODO: parametrize this for each input pin
+        source_statements.extend([
+            __create_voltage_source_statement(ground_net, f"{net}_ideal", wave), # Ideal voltage source
+            f"Rinput_{net} {net}_ideal {net} {input_resistance}" # Input resistance.
+        ])
+    return "\n".join(source_statements)
+
+def __create_voltage_source_statement(ground_net: str, net: str, voltage: Union[float, PieceWiseLinear]) -> str:
+    """
+    Create a SPICE statement for a voltage source driving the 'net' with a voltage.
+    The voltage can be either a static value or a `PieceWiseLinear` function.
+    """
+    if isinstance(voltage, PieceWiseLinear):
+        return f"V{net} {net} {ground_net} PWL({voltage.to_spice_pwl_string()}) DC=0"
+    elif isinstance(voltage, float):
+        return f"V{net} {net} {ground_net} {voltage}"
+    else:
+        assert False, "`voltage` must be either a float or {}".format(PieceWiseLinear)
 
 class NgSpiceInteractive:
     """
@@ -545,33 +552,9 @@ def simulate_cell_v2(
     logger.debug("Static input voltages: {}".format(sorted(list(input_voltages_static.keys()))))
     logger.debug("Dynamic input voltages: {}".format(sorted(list(input_voltages_active.keys()))))
 
-    def create_voltage_source_statement(net: str, voltage: Union[float, PieceWiseLinear]) -> str:
-        """
-        Create a SPICE statement for a voltage source driving the 'net' with a voltage.
-        The voltage can be either a static value or a `PieceWiseLinear` function.
-        """
-        if isinstance(voltage, PieceWiseLinear):
-            return f"V{net} {net} {ground_net} PWL({voltage.to_spice_pwl_string()}) DC=0"
-        elif isinstance(voltage, float):
-            return f"V{net} {net} {ground_net} {voltage}"
-        else:
-            assert False, "`voltage` must be either a float or {}".format(PieceWiseLinear)
-
-    # Create SPICE description of the input voltage sources.
-    active_signal_source_statements = "\n".join(
-        (
-            create_voltage_source_statement(net, wave)
-            for net, wave in input_voltages_active.items()
-        )
-    )
-
-    # Static inputs.
-    static_signal_source_statements = "\n".join(
-        (
-            create_voltage_source_statement(net, voltage)
-            for net, voltage in input_voltages_static.items()
-        )
-    )
+    # Generate SPICE statements of input sources.
+    active_signal_source_statements = __generate_input_voltage_statements(ground_net, input_voltages_active)
+    static_signal_source_statements = __generate_input_voltage_statements(ground_net, input_voltages_static)
 
     # Load capacitance statements.
     if output_load_capacitances is None:

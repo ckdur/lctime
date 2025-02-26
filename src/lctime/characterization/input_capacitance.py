@@ -128,6 +128,8 @@ def characterize_input_capacitances(
 
             # Get voltages at static inputs.
             input_voltages = {net: cfg.supply_voltage * value for net, value in zip(static_input_nets, static_input)}
+            # Set supply voltage.
+            input_voltages[cell_conf.supply_net] = cfg.supply_voltage
 
             # Add input voltages for inverted inputs of differential pairs.
             for p in static_input_nets:
@@ -170,9 +172,18 @@ def characterize_input_capacitances(
                 breakpoint_statement = f"stop when v({active_pin}) > {vdd * 0.9}"
             else:
                 breakpoint_statement = f"stop when v({active_pin}) < {vdd * 0.1}"
-
-            static_supply_voltage_statements = "\n".join(
-                (f"Vinput_{net} {net} {cell_conf.ground_net} {voltage}" for net, voltage in input_voltages.items()))
+                
+            # Generate SPICE statements for input voltages.
+            static_supply_voltage_statements = []
+            for net, voltage in input_voltages.items():
+                input_resistance = 1 # A small input resistance. TODO: parametrize this for each input pin
+                static_supply_voltage_statements.extend([
+                    f"Vinput_{net} {net}_ideal {cell_conf.ground_net} {voltage}", # Ideal voltage source
+                    f"Rinput_{net} {net}_ideal {net} {input_resistance}" # Input resistance.
+                ])
+                
+            # Convert to string.
+            static_supply_voltage_statements = "\n".join(static_supply_voltage_statements)
 
             # Initial node voltages.
             initial_conditions = {
@@ -214,8 +225,6 @@ Xcircuit_under_test {" ".join(ports)} {cell_conf.cell_name}
 
 {output_load_statements}
 
-Vsupply {cell_conf.supply_net} {cell_conf.ground_net} {cfg.supply_voltage}
-
 * Input current sources.
 {input_current_source_statements}
 
@@ -243,8 +252,6 @@ exit
 .end
 """
 
-            # Dump netlist.
-            logger.debug(sim_netlist)
 
             # Dump simulation script to the file.
             # logger.debug(f"Write simulation netlist: {sim_file}")

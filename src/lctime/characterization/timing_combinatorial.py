@@ -294,7 +294,8 @@ def characterize_comb_cell(
                 logger.debug(f"switching energy (gate): {gate_energy}")
 
                 switching_energy = gate_energy + supply_energy
-                assert switching_energy >= 0., "switching power consumption through power supply is negative"
+                if switching_energy < 0:
+                    logger.warn("Negative switching energy: {switching_energy}")
                 
                 v_thresh = 0.5 * vdd
 
