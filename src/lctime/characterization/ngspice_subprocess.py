@@ -193,8 +193,6 @@ pre_set strict_errorhandling
 
 {ground_connection}
 
-Xcircuit_under_test {" ".join(cell_ports)} {cell_name}
-
 * Output load capacitances.
 {load_capacitance_statements}
 
@@ -203,6 +201,8 @@ Xcircuit_under_test {" ".join(cell_ports)} {cell_name}
 
 * Active input signals (clock & data_in).
 {active_signal_source_statements}
+
+Xcircuit_under_test {" ".join(cell_ports)} {cell_name}
 
 * Initial conditions.
 * Also all voltages of DC sources must be here if they are needed to compute the initial conditions.
@@ -272,7 +272,7 @@ def __generate_input_voltage_statements(ground_net: str, input_voltages: Dict[st
     source_statements = []
     for net, wave in input_voltages.items():
         assert isinstance(wave, float) or isinstance(wave, PieceWiseLinear)
-        input_resistance = 1 # A small input resistance. TODO: parametrize this for each input pin
+        input_resistance = 0 # A small input resistance. TODO: parametrize this for each input pin
         source_statements.extend([
             __create_voltage_source_statement(ground_net, f"{net}_ideal", wave), # Ideal voltage source
             f"Rinput_{net} {net}_ideal {net} {input_resistance}" # Input resistance.
@@ -605,8 +605,6 @@ def simulate_cell_v2(
 
 {setup_statements_string}
 
-Xcircuit_under_test {" ".join(cell_ports)} {cell_name}
-
 * Output load capacitances.
 {load_capacitance_statements}
 
@@ -615,6 +613,8 @@ Xcircuit_under_test {" ".join(cell_ports)} {cell_name}
 
 * Active input signals (clock & data_in).
 {active_signal_source_statements}
+
+Xcircuit_under_test {" ".join(cell_ports)} {cell_name}
 
 * Initial conditions.
 * Also all voltages of DC sources must be here if they are needed to compute the initial conditions.

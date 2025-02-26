@@ -176,8 +176,9 @@ def characterize_input_capacitances(
             # Generate SPICE statements for input voltages.
             static_supply_voltage_statements = []
             for net, voltage in input_voltages.items():
-                input_resistance = 1 # A small input resistance. TODO: parametrize this for each input pin
+                input_resistance = 0 # A small input resistance. TODO: parametrize this for each input pin
                 static_supply_voltage_statements.extend([
+                    #f"Vinput_{net} {net} {cell_conf.ground_net} {voltage}", # Ideal voltage source
                     f"Vinput_{net} {net}_ideal {cell_conf.ground_net} {voltage}", # Ideal voltage source
                     f"Rinput_{net} {net}_ideal {net} {input_resistance}" # Input resistance.
                 ])
@@ -221,8 +222,6 @@ pre_set strict_errorhandling
 
 {ground_connection}
 
-Xcircuit_under_test {" ".join(ports)} {cell_conf.cell_name}
-
 {output_load_statements}
 
 * Input current sources.
@@ -230,6 +229,8 @@ Xcircuit_under_test {" ".join(ports)} {cell_conf.cell_name}
 
 * Static input voltages.
 {static_supply_voltage_statements}
+
+Xcircuit_under_test {" ".join(ports)} {cell_conf.cell_name}
 
 * Initial conditions.
 * Also all voltages of DC sources must be here if they are needed to compute the initial conditions.
