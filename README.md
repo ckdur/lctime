@@ -142,3 +142,8 @@ Options for increasing debugging information:
 * `--debug`: increase verbosity. Will also show the path to generated SPICE files.
 * `--debug-plots` plot the waveforms of all simulations to a file. Slow but sometimes useful.
 * Enable very verbose trace log: set the `DEBUG_LCTIME` environment variable to `yes`
+
+## Other open source cell characterization tools
+
+* [libretto](https://github.com/snishizawa/libretto)
+* [CharLib](https://github.com/stineje/CharLib)
