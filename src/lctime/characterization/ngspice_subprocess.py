@@ -154,9 +154,6 @@ def simulate_cell(
             #initial_conditions[net+"_ideal"] = voltage
             initial_conditions[net] = voltage
 
-    # Format breakpoint statements.
-    breakpoint_statements = '\n'.join(breakpoint_statements)
-
     # Append _ideal suffix to input voltages.
     output_nets = []
     for net in output_voltages:
@@ -216,36 +213,52 @@ Xcircuit_under_test {" ".join(cell_ports)} {cell_name}
 *option reltol=1e-5
 *option abstol=1e-15
 
-set filetype=ascii
-set wr_vecnames
+*set filetype=ascii
+*set wr_vecnames
 
 * Breakpoints
-{breakpoint_statements}
+*{breakpoint_statements}
 
 * Transient simulation.
-tran {time_step} {max_simulation_time}
+*tran {time_step} {max_simulation_time}
 * Write selected signals to the output file.
-wrdata {simulation_output_file} {output_voltage_defs} {output_current_defs} 
+*wrdata {simulation_output_file} {output_voltage_defs} {output_current_defs} 
 * Exit ngspice.
-exit
+*exit
 .endc
 
 .end
 """
 
     # Dump simulation script to the file.
-    logger.debug(f"Write simulation netlist: {simulation_file}")
-    if os.path.exists(simulation_file):
-        logger.debug("Simulation file already exists: {}".format(simulation_file))
-    open(simulation_file, "w").write(sim_netlist)
+    if debug:
+        logger.debug(f"Write simulation netlist: {simulation_file}")
+        if os.path.exists(simulation_file):
+            logger.debug("Simulation file already exists: {}".format(simulation_file))
+        open(simulation_file, "w").write(sim_netlist)
 
-    # Start ngspice.
-    logger.debug("Run simulation.")
-    stdout, stderr = run_simulation(simulation_file)
+    ## Start ngspice.
+    #logger.debug("Run simulation.")
+    #stdout, stderr = run_simulation(simulation_file)
 
-    # Retrieve data.
-    logger.debug("Load simulation output.")
-    sim_data = np.loadtxt(simulation_output_file, skiprows=1)
+    # Start ngspice as a subprocess.
+    ns = NgSpiceInteractive()
+    ns.start()
+
+    ns.load_circuit(sim_netlist)
+
+    for s in breakpoint_statements:
+        ns.cmd(s)
+
+    # Start transient simulation.
+    nrows = ns.tran(t_step=time_step, t_stop=max_simulation_time)
+    measure_currents_at = [f'v{c}' for c in output_currents]
+
+    # Retreive data.
+    sim_data = ns.get_data(num_rows=nrows, voltages=output_nets, currents=measure_currents_at)
+
+    ns.cmd('quit') # TODO: kill ngspice on exception, use content manager 
+    ns.stop()
 
     if sim_data.ndim != 2:
         logger.error("Simulation failed. No data was written to the output file.")
@@ -261,13 +274,13 @@ exit
     voltages = dict()
     for v_out in output_voltages:
         voltages[v_out] = sim_data[:, index]
-        index = index + 2
+        index = index + 1
 
     # Put currents into a dict.
     currents = dict()
     for i_out in output_currents:
         currents[i_out] = sim_data[:, index]
-        index = index + 2
+        index = index + 1
 
     return time, voltages, currents
 
@@ -399,6 +412,7 @@ class NgSpiceInteractive:
         self.proc.stdin.flush()
 
     def cmd(self, cmd: str):
+        logger.debug(f"ngspice> {cmd}")
         self._write(cmd)
         self._write('\n')
         self._flush()
