@@ -91,8 +91,6 @@ def test_interactive_subprocess():
 
 
 def test_ngspice_subprocess_class():
-    sim_file = tempfile.mktemp()
-    sim_output_file = tempfile.mktemp()
 
     spice_simulation_netlist = f"""
 *
@@ -108,15 +106,11 @@ Vsrc_vdd VDD GND PWL(0 0 1ms 0V 2ms 1V)
 *set filetype=ascii
 * Enable output of vector names in the first line.
 *set wr_vecnames
-*tran 1ms 10ms
-*wrdata {sim_output_file} v(VDD) v(Y)
 
 *.endc
 
 .end
     """
-    print(f"Write simulation file: {sim_file}")
-    open(sim_file, 'w').write(spice_simulation_netlist)
 
     ns = NgSpiceInteractive()
     ns.start()
@@ -129,11 +123,15 @@ Vsrc_vdd VDD GND PWL(0 0 1ms 0V 2ms 1V)
     # ns.cmd('tran 1ms 1ms')
     nrows = ns.tran(t_step='1ms', t_stop='1ms')
     data1 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
-    print(data1)
+    print("data1", data1)
+    assert data1[0,1] == 0
+    assert data1[-1,1] == 0
 
     nrows = ns.tran(t_step='1ms', t_stop='2ms')
     data2 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
     print(data2)
+    assert data2[0,1] == 0
+    assert data2[-1,1] == 1
     # ns.cmd('wrdata /dev/stdout v(VDD) v(Y)')
     ns.drop_stderr()
 
