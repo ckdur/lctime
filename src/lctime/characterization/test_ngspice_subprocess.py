@@ -96,18 +96,11 @@ def test_ngspice_subprocess_class():
 *
 .title Simple RC circuit.
 
+.param voltage_end = 1V
+
 R1 VDD Y 1k
 C1 Y GND 1u ic=0V
-Vsrc_vdd VDD GND PWL(0 0 1ms 0V 2ms 1V)
-
-*.control
-*option abstol=10e-15
-*option reltol=10e-11
-*set filetype=ascii
-* Enable output of vector names in the first line.
-*set wr_vecnames
-
-*.endc
+Vsrc_vdd VDD GND PWL(0 0 1ms 0V 2ms {{voltage_end}})
 
 .end
     """
@@ -123,13 +116,11 @@ Vsrc_vdd VDD GND PWL(0 0 1ms 0V 2ms 1V)
     # ns.cmd('tran 1ms 1ms')
     nrows = ns.tran(t_step='1ms', t_stop='1ms')
     data1 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
-    print("data1", data1)
     assert data1[0,1] == 0
     assert data1[-1,1] == 0
 
     nrows = ns.tran(t_step='1ms', t_stop='2ms')
     data2 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
-    print(data2)
     assert data2[0,1] == 0
     assert data2[-1,1] == 1
     # ns.cmd('wrdata /dev/stdout v(VDD) v(Y)')
@@ -137,6 +128,21 @@ Vsrc_vdd VDD GND PWL(0 0 1ms 0V 2ms 1V)
 
     err = ns.readline_err()
     print(err)
+
+
+    # Re-run the simulation with another wave form.
+    ns.reset()
+    # update the waveform
+    ns.cmd("alter @Vsrc_vdd[pwl] = [ 0 0 1ms 0V 2ms 2V ]")
+    #ns.cmd("alterparam voltage_end = 2V")
+    nrows = ns.tran(t_step='1ms', t_stop='2ms')
+    data2 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
+    err = ns.readline_err()
+    print(err)
+    assert data2[0,1] == 0
+    assert data2[-1,1] == 2, "failed to alter the piece-wise linear voltage source"
+
+
 
     ns.cmd('quit')
 
