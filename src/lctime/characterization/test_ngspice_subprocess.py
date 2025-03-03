@@ -105,46 +105,41 @@ Vsrc_vdd VDD GND PWL(0 0 1ms 0V 2ms {{voltage_end}})
 .end
     """
 
-    ns = NgSpiceInteractive()
-    ns.start()
+    with NgSpiceInteractive() as ns:
 
-    # ns.source(sim_file)
-    ns.load_circuit(spice_simulation_netlist)
+        # ns.source(sim_file)
+        ns.load_circuit(spice_simulation_netlist)
 
-    # ns.cmd(spice_simulation_netlist)
-    # ns.cmd('set filetype=ascii')
-    # ns.cmd('tran 1ms 1ms')
-    nrows = ns.tran(t_step='1ms', t_stop='1ms')
-    data1 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
-    assert data1[0,1] == 0
-    assert data1[-1,1] == 0
+        # ns.cmd(spice_simulation_netlist)
+        # ns.cmd('set filetype=ascii')
+        # ns.cmd('tran 1ms 1ms')
+        nrows = ns.tran(t_step='1ms', t_stop='1ms')
+        data1 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
+        assert data1[0,1] == 0
+        assert data1[-1,1] == 0
 
-    nrows = ns.tran(t_step='1ms', t_stop='2ms')
-    data2 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
-    assert data2[0,1] == 0
-    assert data2[-1,1] == 1
-    # ns.cmd('wrdata /dev/stdout v(VDD) v(Y)')
-    ns.drop_stderr()
+        nrows = ns.tran(t_step='1ms', t_stop='2ms')
+        data2 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
+        assert data2[0,1] == 0
+        assert data2[-1,1] == 1
+        # ns.cmd('wrdata /dev/stdout v(VDD) v(Y)')
+        ns.drop_stderr()
 
-    err = ns.readline_err()
-    print(err)
-
-
-    # Re-run the simulation with another wave form.
-    ns.reset()
-    # update the waveform
-    ns.cmd("alter @Vsrc_vdd[pwl] = [ 0 0 1ms 0V 2ms 2V ]")
-    #ns.cmd("alterparam voltage_end = 2V")
-    nrows = ns.tran(t_step='1ms', t_stop='2ms')
-    data2 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
-    err = ns.readline_err()
-    print(err)
-    assert data2[0,1] == 0
-    assert data2[-1,1] == 2, "failed to alter the piece-wise linear voltage source"
+        err = ns.readline_err()
+        print(err)
 
 
-
-    ns.cmd('quit')
+        # Re-run the simulation with another wave form.
+        ns.reset()
+        # update the waveform
+        ns.cmd("alter Vsrc_vdd pwl = [ 0 0 1ms 0V 2ms 2V ]")
+        #ns.cmd("alterparam voltage_end = 2V")
+        nrows = ns.tran(t_step='1ms', t_stop='2ms')
+        data2 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
+        err = ns.readline_err()
+        print(err)
+        assert data2[0,1] == 0
+        assert data2[-1,1] == 2, "failed to alter the piece-wise linear voltage source"
 
 
 #class NgSpiceAsync:

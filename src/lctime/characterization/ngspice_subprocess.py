@@ -224,23 +224,19 @@ Xcircuit_under_test {" ".join(cell_ports)} {cell_name}
     #stdout, stderr = run_simulation(simulation_file)
 
     # Start ngspice as a subprocess.
-    ns = NgSpiceInteractive()
-    ns.start()
+    with NgSpiceInteractive(logger=logger) as ns:
 
-    ns.load_circuit(sim_netlist)
+        ns.load_circuit(sim_netlist)
 
-    for s in breakpoint_statements:
-        ns.cmd(s)
+        for s in breakpoint_statements:
+            ns.cmd(s)
 
-    # Start transient simulation.
-    nrows = ns.tran(t_step=time_step, t_stop=max_simulation_time)
-    measure_currents_at = [f'v{c}' for c in output_currents]
+        # Start transient simulation.
+        nrows = ns.tran(t_step=time_step, t_stop=max_simulation_time)
+        measure_currents_at = [f'v{c}' for c in output_currents]
 
-    # Retreive data.
-    sim_data = ns.get_data(num_rows=nrows, voltages=output_nets, currents=measure_currents_at)
-
-    ns.cmd('quit') # TODO: kill ngspice on exception, use content manager 
-    ns.stop()
+        # Retreive data.
+        sim_data = ns.get_data(num_rows=nrows, voltages=output_nets, currents=measure_currents_at)
 
     if sim_data.ndim != 2:
         logger.error("Simulation failed. No data was written to the output file.")
@@ -317,17 +313,26 @@ class NgSpiceInteractive:
         self._stdout_reader_thread = None
         self._stderr_reader_thread = None
 
-    def stop(self):
+    def __stop(self):
         if self.proc:
             self.proc.kill()
             self.proc = None
 
-    def start(self):
-        self.proc = subprocess.Popen(['ngspice', '-p'],
-                                     stdin=subprocess.PIPE,
-                                     stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE,
-                                     universal_newlines=True)
+    def __exit__(self, *args):
+        self.__stop()
+
+    def __enter__(self):
+        self.__start()
+        return self
+
+    def __start(self):
+        self.proc = subprocess.Popen(
+            [self.ngspice_cmd] + self.ngspice_args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True
+        )
 
         def read_stdout():
             while self.proc:
@@ -394,7 +399,7 @@ class NgSpiceInteractive:
         self.proc.stdin.flush()
 
     def cmd(self, cmd: str):
-        logger.debug(f"ngspice> {cmd}")
+        self.logger.debug(f"ngspice> {cmd}")
         self._write(cmd)
         self._write('\n')
         self._flush()
