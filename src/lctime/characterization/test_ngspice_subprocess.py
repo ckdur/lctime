@@ -118,28 +118,33 @@ Vsrc_vdd VDD GND PWL(0 0 1ms 0V 2ms {{voltage_end}})
         assert data1[0,1] == 0
         assert data1[-1,1] == 0
 
+        err = ns.readline_err()
+        assert err == None, f"ngspice error: {err}"
+
         nrows = ns.tran(t_step='1ms', t_stop='2ms')
         data2 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
         assert data2[0,1] == 0
         assert data2[-1,1] == 1
         # ns.cmd('wrdata /dev/stdout v(VDD) v(Y)')
-        ns.drop_stderr()
 
         err = ns.readline_err()
-        print(err)
+        assert err == None, f"ngspice error: {err}"
 
 
         # Re-run the simulation with another wave form.
         ns.reset()
         # update the waveform
         ns.cmd("alter Vsrc_vdd pwl = [ 0 0 1ms 0V 2ms 2V ]")
+        # Change capacitor value
+        ns.cmd("alter C1 = 2u")
         #ns.cmd("alterparam voltage_end = 2V")
         nrows = ns.tran(t_step='1ms', t_stop='2ms')
         data2 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
         err = ns.readline_err()
-        print(err)
+        assert err == None, f"ngspice error: {err}"
         assert data2[0,1] == 0
         assert data2[-1,1] == 2, "failed to alter the piece-wise linear voltage source"
+        print(data2[-1, 2])
 
 
 #class NgSpiceAsync:

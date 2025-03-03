@@ -41,6 +41,156 @@ def run_simulation(sim_file: str, ngspice_executable: str = 'ngspice'):
         logger.error(msg)
         raise FileNotFoundError(msg)
 
+class CellSimulation:
+
+    def __init__(self,
+        simulator, #: NgSpiceInteractive,
+        cell_name: str,
+        cell_ports: List[str],
+        input_voltages: Dict[str, Union[PieceWiseLinear, float]],
+        output_load_capacitances: Dict[str, float] = None,
+        time_step: float = 100.0e-12,
+        setup_statements: List[str] = None,
+        ground_net: str = "GND",
+        simulation_title: str = "<UNTITLED SIMULATION>",
+        ):
+        assert isinstance(simulator, NgSpiceInteractive)
+        self.simulator = simulator
+        self.cell_name = cell_name
+        self.cell_ports = cell_ports
+        self.input_voltages = input_voltages
+        self.simulation_title = simulation_title
+        self.ground_net = ground_net
+        self.temperature = 25
+        self.output_load_capacitances = output_load_capacitances
+        self.time_step = time_step
+        self.setup_statements = setup_statements
+
+        self.set_initial_voltages = dict()
+
+    def _default_circuit(self) -> str:
+        """
+        Create SPICE netlist of this simulation setup.
+        """
+
+        # Create a list of include files.
+        setup_statements_string = ""
+        if self.setup_statements is not None:
+            # Load include files.
+            setup_statements_string = "\n".join(self.setup_statements)
+
+        # If the ground net is not called GND, then it must be connected to GND or 0.
+        # This seems to be a must for SPICE simulators.
+        # See: https://codeberg.org/librecell/lctime/issues/12#issuecomment-2173526
+        ground_connection = ""
+        if self.ground_net not in ["GND", "gnd", "0"]:
+            logger.debug(f"Connect ground net `{self.ground_net}` to simulators ground `0`.")
+            ground_connection = f"* Connect ground net to GND\n" \
+            f"vgnd {self.ground_net} 0 0"
+
+        # Load capacitance statements.
+        load_capacitance_statements = ""
+        if self.output_load_capacitances is not None:
+            assert isinstance(self.output_load_capacitances, dict)
+            load_capacitance_statements = "\n".join(
+                (
+                    f"Cload_{net} {net} {ground_net} {load}"
+                    for net, load in self.output_load_capacitances.items()
+                )
+            )
+
+        # Generate SPICE statements of input sources.
+        active_signal_source_statements = __generate_input_voltage_statements(ground_net, input_voltages_active)
+        static_signal_source_statements = __generate_input_voltage_statements(ground_net, input_voltages_static)
+
+        sim_netlist = f"""* librecell {__name__}
+.title {self.simulation_title}
+
+.control
+* Exit on error with return value 1
+pre_set strict_errorhandling
+.endc
+
+.option TEMP={self.temperature}
+
+{setup_statements_string}
+
+{ground_connection}
+
+* Output load capacitances.
+{load_capacitance_statements}
+
+* Static input and supply voltages.
+{static_signal_source_statements}
+
+* Active input signals (clock & data_in).
+{active_signal_source_statements}
+
+Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
+
+.end
+"""
+        return sim_netlist
+
+    def _initial_conditions(self):
+        # TODO
+        # Also all voltages of DC sources must be here if they are needed to compute the initial conditions.
+        return f'.ic {" ".join((f"v({net})={v}" for net, v in self.initial_conditions.items()))}'
+
+    def _init_simulation(self):
+        self.simulator.load_circuit(self._default_circuit())
+
+    def set_temperature(self, temp: float):
+        self.temperature = temp
+        self.simulator.cmd(f"option TEMP={temp}")
+
+    def set_initial_voltages(initial_voltages: Dict[str, float]):
+        self.initial_voltages = initial_voltages
+
+    def set_breakpoint(self, breakpoint: str):
+        self.simulator.cmd(f"breakpoint {breakpoint}")
+
+    def set_capacitance(self, name: str, value: float):
+        assert name.lower().startswith("c"), "capacitor name must start with C"
+        self.simulator.cmd(f"alter {name} {value}")
+
+    def set_resistance(self, name: str, value: float):
+        assert name.lower().startswith("r"), "resistor name must start with R"
+        self.simulator.cmd(f"alter {name} {value}")
+
+    def set_voltage_dc(self, name: str, value: float):
+        assert name.lower().startswith("v"), "voltage source name must start with V"
+        self.simulator.cmd(f"alter {name} {value}")
+
+    def set_voltage_pwl(self, name: str, pwl: str):
+        assert name.lower().startswith("v"), "voltage source name must start with V"
+        self.simulator.cmd(f"alter {name} pwl = {value}")
+
+    def tran(self, t_step: float, t_stop: float, t_start=None) -> int:
+        """
+        Run transient simulation.
+
+        Return number of datapoints.
+        """
+        return self.simulator.tran(t_step=step, t_stop=stop, t_start=start)
+
+    def get_data(self, 
+                 num_rows: int, 
+                 voltages: List[str] = None, 
+                 currents: List[str] = None
+             ) -> np.ndarray:
+        """
+        Get data points.
+        :param num_rows: number of data points created by `self.tran()`
+        """
+
+        return self.simulator.get_data(
+            num_rows, voltages, currents
+        )
+
+    def reset(self):
+        self.simulator.reset()
+
 
 def simulate_cell(
         cell_name: str,
@@ -163,9 +313,6 @@ def simulate_cell(
         else:
             output_nets.append(net)
 
-    # Generate output definitions for voltages.
-    output_voltage_defs = " ".join((f"v({v})" for v in output_nets))
-
     # Can measure currents only through sources.
     # Check that specified output currents match with specified voltage sources.
     for current in output_currents:
@@ -175,9 +322,6 @@ def simulate_cell(
             logger.error(msg)
             assert False, msg
 
-    # Generate output definitions for currents.
-    output_current_defs = " ".join((f"i(v{source})" for source in output_currents))
-    #output_current_defs = " ".join((f"i(v{source}_ideal)" for source in output_currents))
 
     # Create ngspice simulation script.
     sim_netlist = f"""* librecell {__name__}
@@ -386,9 +530,13 @@ class NgSpiceInteractive:
         while not self._from_stdout.empty():
             self._from_stdout.get_nowait()
 
-    def readline_err(self) -> str:
+    def readline_err(self, timeout: float = 0.1) -> str:
+        """
+        Read stderr.
+        Returns `None` if there's nothing on stderr within the timeout.
+        """
         try:
-            return self._from_stderr.get(block=True, timeout=1)
+            return self._from_stderr.get(block=True, timeout=timeout)
         except queue.Empty:
             return None
 
@@ -453,6 +601,7 @@ class NgSpiceInteractive:
                 self._write(line)
                 self._write('\n')
                 self._flush()
+        self.__check_err(timeout=0)
 
     def get_data(self, num_rows: int, voltages: List[str] = None, currents: List[str] = None) -> np.ndarray:
         self.drop_stdout()
@@ -486,3 +635,12 @@ class NgSpiceInteractive:
         data = data[:, 1:]
 
         return data
+
+    def __check_err(self, timeout: float = 0.1):
+        """
+        Raise an exception on an error.
+        """
+
+        err = self.readline_err(timeout=timeout)
+        if err is not None:
+            raise Exception(f"ngspice error: {err}")
