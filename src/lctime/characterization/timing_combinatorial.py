@@ -269,7 +269,8 @@ def characterize_comb_cell(
                     # Set output load.
                     simulation.set_capacitance(f"Cload_{output_pin}", output_cap)
 
-                    # simulation.simulator.cmd("listing") # TODO: print listing in debug mode
+                    if cfg.debug:
+                        simulation.simulator.cmd("listing")
                     num_data_rows = simulation.tran(t_step=cfg.time_step, t_stop=time_max)
 
                     time, voltages, currents = simulation.get_data(
