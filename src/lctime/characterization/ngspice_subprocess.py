@@ -158,7 +158,7 @@ Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
         return "\n".join(params)
 
     def _init_simulation(self):
-        logger.info(self._default_circuit())
+        logger.debug(self._default_circuit())
         self.simulator.load_circuit(self._default_circuit())
 
     def set_temperature(self, temp: float):
