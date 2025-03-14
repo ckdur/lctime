@@ -271,6 +271,9 @@ Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
         return time, voltages, currents
 
     def reset(self):
+        """
+        Reset parameters, clear all breakpoints.
+        """
         self.simulator.reset()
         self.simulator.cmd("delete all")
 
