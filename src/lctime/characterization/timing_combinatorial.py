@@ -14,7 +14,7 @@ import os
 
 from .util import *
 from .piece_wise_linear import *
-from .ngspice_subprocess import simulate_cell, CellSimulation, NgSpiceInteractive
+from .ngspice_subprocess import CellSimulation, NgSpiceInteractive
 from ..lccommon.net_util import get_subcircuit_ports
 
 import logging
@@ -195,17 +195,13 @@ def characterize_comb_cell(
                 for input_rising in [True, False]:
                     simulation.reset() # Rewind the simulation.
 
-
                     # Simulation script file path.
                     file_name = f"lctime_combinational_" \
                                 f"slew={input_transition_time}_" \
                                 f"load={output_cap}" \
                                 f"{''.join((f'{net}={v}' for net, v in input_voltages.items() if isinstance(v, float)))}_" \
                                 f"{'rising' if input_rising else 'falling'}"
-                    sim_file = os.path.join(cfg.workingdir, f"{file_name}.sp")
 
-                    # Output file for simulation results.
-                    sim_output_file = os.path.join(cfg.workingdir, f"{file_name}_output.txt")
                     # File for debug plot of the waveforms.
                     sim_plot_file = os.path.join(cfg.workingdir, f"{file_name}_plot.svg")
 
@@ -248,14 +244,9 @@ def characterize_comb_cell(
                         
                     # Get the breakpoint condition.
                     if expected_output:
-                        breakpoint_statement = f"stop when v({output_pin}) > {vdd * 0.99}"
+                        simulation.set_breakpoint(f"stop when v({output_pin}) > {vdd * 0.99}")
                     else:
-                        breakpoint_statement = f"stop when v({output_pin}) < {vdd * 0.01}"
-                    simulation.set_breakpoint(breakpoint_statement.lower())
-                    breakpoint_statements = [breakpoint_statement]
-
-                    
-                    simulation_title = f"Timing simulation for pin '{related_pin}', input_rising={input_rising}."
+                        simulation.set_breakpoint(f"stop when v({output_pin}) < {vdd * 0.01}")
 
                     # Set input voltages.
                     for net, value in input_voltages.items():

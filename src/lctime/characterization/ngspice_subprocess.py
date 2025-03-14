@@ -167,7 +167,7 @@ Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
 
     def set_breakpoint(self, breakpoint: str):
         assert breakpoint.startswith("stop")
-        self.simulator.cmd(breakpoint)
+        self.simulator.cmd(breakpoint.lower())
 
     # TODO remove
     # def delete_all_breakpoints(self):
