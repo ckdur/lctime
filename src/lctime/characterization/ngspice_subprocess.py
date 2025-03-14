@@ -49,7 +49,6 @@ class CellSimulation:
         cell_ports: List[str],
         input_voltages: Dict[str, Union[PieceWiseLinear, float]],
         output_load_capacitances: Dict[str, float] = None,
-        time_step: float = 100.0e-12,
         setup_statements: List[str] = None,
         ground_net: str = "GND",
         simulation_title: str = "<UNTITLED SIMULATION>",
@@ -63,10 +62,20 @@ class CellSimulation:
         self.ground_net = ground_net
         self.temperature = 25
         self.output_load_capacitances = output_load_capacitances
-        self.time_step = time_step
         self.setup_statements = setup_statements
 
-        self.set_initial_voltages = dict()
+        self.initial_voltages = dict()
+        for net, v in input_voltages.items():
+            if isinstance(v, PieceWiseLinear):
+                self.initial_voltages[net] = v(0)
+            else:
+                self.initial_voltages[net] = v
+
+        # Set default value of outputs.
+        for net in output_load_capacitances.keys():
+            self.initial_voltages[net] = 0.0
+
+        self._init_simulation()
 
     def _default_circuit(self) -> str:
         """
@@ -94,14 +103,13 @@ class CellSimulation:
             assert isinstance(self.output_load_capacitances, dict)
             load_capacitance_statements = "\n".join(
                 (
-                    f"Cload_{net} {net} {ground_net} {load}"
+                    f"Cload_{net} {net} {self.ground_net} {load}"
                     for net, load in self.output_load_capacitances.items()
                 )
             )
 
         # Generate SPICE statements of input sources.
-        active_signal_source_statements = __generate_input_voltage_statements(ground_net, input_voltages_active)
-        static_signal_source_statements = __generate_input_voltage_statements(ground_net, input_voltages_static)
+        signal_source_statements = _generate_input_voltage_statements(self.ground_net, self.input_voltages)
 
         sim_netlist = f"""* librecell {__name__}
 .title {self.simulation_title}
@@ -113,6 +121,8 @@ pre_set strict_errorhandling
 
 .option TEMP={self.temperature}
 
+{self._params_initial_counditions()}
+
 {setup_statements_string}
 
 {ground_connection}
@@ -120,39 +130,81 @@ pre_set strict_errorhandling
 * Output load capacitances.
 {load_capacitance_statements}
 
-* Static input and supply voltages.
-{static_signal_source_statements}
-
-* Active input signals (clock & data_in).
-{active_signal_source_statements}
+* Input and supply voltages.
+{signal_source_statements}
 
 Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
+
+{self._initial_conditions_stmts()}
 
 .end
 """
         return sim_netlist
 
-    def _initial_conditions(self):
+    def _initial_conditions_stmts(self):
         # TODO
         # Also all voltages of DC sources must be here if they are needed to compute the initial conditions.
-        return f'.ic {" ".join((f"v({net})={v}" for net, v in self.initial_conditions.items()))}'
+        return f'.ic {" ".join((f"v({net})={{ic_{net.lower()}}}" for net, _ in self.initial_voltages.items()))}'
+
+    def _params_initial_counditions(self):
+        """
+        Define variables (parameters) for the values of initial conditions. 
+        """
+        params = []
+
+        for net, v in self.initial_voltages.items():
+            params.append(f".param ic_{net.lower()}={v}")
+
+        return "\n".join(params)
 
     def _init_simulation(self):
+        logger.info(self._default_circuit())
         self.simulator.load_circuit(self._default_circuit())
 
     def set_temperature(self, temp: float):
         self.temperature = temp
         self.simulator.cmd(f"option TEMP={temp}")
 
-    def set_initial_voltages(initial_voltages: Dict[str, float]):
-        self.initial_voltages = initial_voltages
-
     def set_breakpoint(self, breakpoint: str):
-        self.simulator.cmd(f"breakpoint {breakpoint}")
+        assert breakpoint.startswith("stop")
+        self.simulator.cmd(breakpoint)
+
+    # TODO remove
+    # def delete_all_breakpoints(self):
+    #     """
+    #     Delete breakpoints.
+    #     """
+    #     self.simulator.drop_stdout()
+
+    #     # Ask for current breakpoints.
+    #     self.simulator.cmd("status")
+
+    #     nums = [] # Breakpoint numbers to be deleted.
+        
+    #     read_timeout = 0.1
+    #     # Get current breakpoints.
+    #     while True:
+    #         line = self.simulator.readline(timeout=read_timeout)
+    #         read_timeout = 0.001 # Use shorter timeout after the first line.
+    #         if line is None:
+    #             break
+    #         # Parse response.
+    #         parts = line.split() # Split at whitespace
+    #         if len(parts) > 1 and parts[1] == "stop":
+    #             num = int(parts[0])
+    #             nums.append(num)
+
+    #     logger.info(f"num breakpoints: {len(nums)}")
+    #     for num in nums:
+    #         self.simulator.cmd(f"delete {num}")
 
     def set_capacitance(self, name: str, value: float):
         assert name.lower().startswith("c"), "capacitor name must start with C"
         self.simulator.cmd(f"alter {name} {value}")
+        
+    def set_capacitor_voltage(self, name: str, value: float):
+        assert name.lower().startswith("c"), "capacitor name must start with C"
+        self.simulator.cmd(f"alter {name} ic {value}")
 
     def set_resistance(self, name: str, value: float):
         assert name.lower().startswith("r"), "resistor name must start with R"
@@ -162,9 +214,14 @@ Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
         assert name.lower().startswith("v"), "voltage source name must start with V"
         self.simulator.cmd(f"alter {name} {value}")
 
-    def set_voltage_pwl(self, name: str, pwl: str):
+    def set_voltage_pwl(self, name: str, value: str):
         assert name.lower().startswith("v"), "voltage source name must start with V"
-        self.simulator.cmd(f"alter {name} pwl = {value}")
+        assert not value.strip().startswith("[")
+        self.simulator.cmd(f"alter {name} pwl = [ {value} ]")
+
+    def set_initial_voltage(self, net: str, value: float):
+        assert isinstance(value, float)
+        self.simulator.cmd(f"alterparam ic_{net.lower()}={value}")
 
     def tran(self, t_step: float, t_stop: float, t_start=None) -> int:
         """
@@ -172,24 +229,50 @@ Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
 
         Return number of datapoints.
         """
-        return self.simulator.tran(t_step=step, t_stop=stop, t_start=start)
+        return self.simulator.tran(t_step=t_step, t_stop=t_stop, t_start=t_start)
 
     def get_data(self, 
                  num_rows: int, 
-                 voltages: List[str] = None, 
-                 currents: List[str] = None
+                 output_voltages: List[str] = None, 
+                 output_currents: List[str] = None
              ) -> np.ndarray:
         """
         Get data points.
         :param num_rows: number of data points created by `self.tran()`
         """
 
-        return self.simulator.get_data(
-            num_rows, voltages, currents
+        sim_data = self.simulator.get_data(
+            num_rows, output_voltages, output_currents
         )
+        
+        if sim_data.ndim != 2:
+            logger.error("Simulation failed. No data was written to the output file.")
+            if debug:
+                pass
+                # TODO logger.error(f"ngspice: {stderr}")
+            assert False, "Simulation failed. No data was written to the output file."
+
+        # Extract data from the numpy array.
+        time = sim_data[:, 0]
+        index = 1
+
+        # Put voltages into a dict.
+        voltages = dict()
+        for v_out in output_voltages:
+            voltages[v_out] = sim_data[:, index]
+            index = index + 1
+
+        # Put currents into a dict.
+        currents = dict()
+        for i_out in output_currents:
+            currents[i_out] = sim_data[:, index]
+            index = index + 1
+
+        return time, voltages, currents
 
     def reset(self):
         self.simulator.reset()
+        self.simulator.cmd("delete all")
 
 
 def simulate_cell(
@@ -276,8 +359,8 @@ def simulate_cell(
     logger.debug("Dynamic input voltages: {}".format(sorted(list(input_voltages_active.keys()))))
     
     # Generate SPICE statements of input sources.
-    active_signal_source_statements = __generate_input_voltage_statements(ground_net, input_voltages_active)
-    static_signal_source_statements = __generate_input_voltage_statements(ground_net, input_voltages_static)
+    active_signal_source_statements = _generate_input_voltage_statements(ground_net, input_voltages_active)
+    static_signal_source_statements = _generate_input_voltage_statements(ground_net, input_voltages_static)
     
     # Load capacitance statements.
     if output_load_capacitances is None:
@@ -406,7 +489,7 @@ Xcircuit_under_test {" ".join(cell_ports)} {cell_name}
 
     return time, voltages, currents
 
-def __generate_input_voltage_statements(ground_net: str, input_voltages: Dict[str, Union[float, PieceWiseLinear]]) -> str:
+def _generate_input_voltage_statements(ground_net: str, input_voltages: Dict[str, Union[float, PieceWiseLinear]]) -> str:
     # Generate SPICE statements for input voltages.
     source_statements = []
     for net, wave in input_voltages.items():
@@ -441,9 +524,9 @@ class NgSpiceInteractive:
     def __init__(self,
                  ngspice_executable: str = None,
                  logger: logging.Logger = None):
-        if logger is None:
-            logger = logging.getLogger(__name__)
         self.logger = logger
+        if logger is None:
+            self.logger = logging.getLogger(__name__)
         self.ngspice_cmd = 'ngspice' if ngspice_executable is None else ngspice_executable
         self.ngspice_args = ['-p']
         "Run ngspice in interactive pipe mode."
@@ -510,7 +593,7 @@ class NgSpiceInteractive:
         self._stdout_reader_thread.start()
         self._stderr_reader_thread.start()
 
-    def readline(self, timeout: Optional[int] = 1) -> str:
+    def readline(self, timeout: Optional[int] = 0.1) -> str:
         try:
             return self._from_stdout.get(block=True, timeout=timeout)
         except queue.Empty:
@@ -583,6 +666,8 @@ class NgSpiceInteractive:
                 _, num_rows_str = line.split('=', 2)
                 num_rows = int(float(num_rows_str))
                 break
+            else:
+                logger.debug(f"ngspice: {line}")
 
         assert num_rows > 0
         return num_rows
@@ -604,6 +689,7 @@ class NgSpiceInteractive:
         self.__check_err(timeout=0)
 
     def get_data(self, num_rows: int, voltages: List[str] = None, currents: List[str] = None) -> np.ndarray:
+        # TODO use wrdata into a pipe (os.mkfifo()).
         self.drop_stdout()
 
         signals = []
@@ -621,7 +707,7 @@ class NgSpiceInteractive:
         rows = []
         i = 0
         while True:
-            line = self.readline()
+            line = self.readline(timeout=1)
             assert line is not None
             if line.startswith(str(i)):
                 i = i + 1
