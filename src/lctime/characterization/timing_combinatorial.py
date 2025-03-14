@@ -146,7 +146,6 @@ def characterize_comb_cell(
             setup_statements=setup_statements,
             ground_net=cell_conf.ground_net,
             simulation_title=f"characterization (combinational) of {cell_conf.cell_name}"
-
         )
 
         def f(input_transition_time: float, output_cap: float):
@@ -255,7 +254,7 @@ def characterize_comb_cell(
                             simulation.set_voltage_dc(src, value)
                         elif isinstance(value, PieceWiseLinear):
                             simulation.set_voltage_dc(src, 0)
-                            simulation.set_voltage_pwl(src, value.to_spice_pwl_string())
+                            simulation.set_voltage_pwl(src, value)
 
                     # Set output load.
                     simulation.set_capacitance(f"Cload_{output_pin}", output_cap)

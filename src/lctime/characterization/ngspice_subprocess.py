@@ -214,10 +214,10 @@ Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
         assert name.lower().startswith("v"), "voltage source name must start with V"
         self.simulator.cmd(f"alter {name} {value}")
 
-    def set_voltage_pwl(self, name: str, value: str):
+    def set_voltage_pwl(self, name: str, pwl: PieceWiseLinear):
         assert name.lower().startswith("v"), "voltage source name must start with V"
-        assert not value.strip().startswith("[")
-        self.simulator.cmd(f"alter {name} pwl = [ {value} ]")
+        assert isinstance(pwl,PieceWiseLinear)
+        self.simulator.cmd(f"alter {name} pwl = [ {pwl.to_spice_pwl_string()} ]")
 
     def set_initial_voltage(self, net: str, value: float):
         assert isinstance(value, float)
