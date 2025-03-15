@@ -275,7 +275,8 @@ Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
         Reset parameters, clear all breakpoints.
         """
         self.simulator.reset()
-        self.simulator.cmd("delete all")
+        self.simulator.cmd("delete all") # Delete all breakpoints.
+        self.simulator.cmd("destroy all") # Remove previous datasets.
 
 
 def simulate_cell(
