@@ -28,6 +28,7 @@ from ..logic.types import CombinationalOutput
 from .timing_combinatorial import characterize_comb_cell
 from .timing_sequential import *
 from .input_capacitance import characterize_input_capacitances
+from .ngspice_subprocess import NgSpiceInteractive
 from . import flipflop
 from . import util
 
@@ -1027,17 +1028,19 @@ class CellSetup:
         )
 
         if isinstance(self.cell_type, Combinational):
-            characterize_combinational_output(
-                self.lctime.new_library,
-                new_cell_group,
-                self.lctime.conf,
-                self.cell_type,
-                cell_conf,
-                self.input_pins,
-                self.input_pins_non_inverted,
-                self.output_capacitances,
-                self.input_transition_times
-            )
+            with NgSpiceInteractive(logger=logger) as simulator:
+                characterize_combinational_output(
+                    simulator,
+                    self.lctime.new_library,
+                    new_cell_group,
+                    self.lctime.conf,
+                    self.cell_type,
+                    cell_conf,
+                    self.input_pins,
+                    self.input_pins_non_inverted,
+                    self.output_capacitances,
+                    self.input_transition_times
+                )
         elif isinstance(self.cell_type, SingleEdgeDFF):
             flipflop.characterize_flip_flop_output(
                 self.lctime.new_library,
@@ -1275,6 +1278,7 @@ def measure_input_capacitances(
 
 
 def characterize_combinational_output(
+        simulator: NgSpiceInteractive,
         new_library: Group,
         new_cell_group: Group,
         conf: CharacterizationConfig,
@@ -1285,6 +1289,7 @@ def characterize_combinational_output(
         output_capacitances: np.ndarray,
         input_transition_times: np.ndarray
 ):
+    assert isinstance(simulator, NgSpiceInteractive)
     assert isinstance(cell_type, Combinational) or isinstance(cell_type, SingleEdgeDFF)
     
     is_clock_to_output_arc = isinstance(cell_type, SingleEdgeDFF)
@@ -1393,6 +1398,7 @@ def characterize_combinational_output(
                 logger.info("Timing sense: {}".format(timing_sense))
 
                 result = characterize_comb_cell(
+                    simulator=simulator,
                     input_pins=_input_pins,
                     output_pin=output_pin_name,
                     related_pin=related_pin,

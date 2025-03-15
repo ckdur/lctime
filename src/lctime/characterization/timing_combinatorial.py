@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def characterize_comb_cell(
+        simulator: NgSpiceInteractive,
         input_pins: List[str],
         output_pin: str,
         related_pin: str,
@@ -40,6 +41,7 @@ def characterize_comb_cell(
 ) -> Dict[str, np.ndarray]:
     """
     Calculate the NLDM timing table of a cell for a given timing arc.
+    :param simulator: active ngspice instance
     :param constant_inputs: A truth-assignment for input pins that are static. Used for tri-state enable pins.
     :param cell_conf: Parameters and configuration for the characterization.
     :param input_net_transition: Transition times of input signals in seconds.
@@ -54,7 +56,7 @@ def characterize_comb_cell(
     :return: Returns the NLDM timing tables wrapped in a dict:
     {'cell_rise': 2d-np.ndarray, 'cell_fall': 2d-np.ndarray, ... }
     """
-
+    assert isinstance(simulator, NgSpiceInteractive)
     assert isinstance(cell_conf, CellConfig)
     assert isinstance(cell_conf.global_conf, CharacterizationConfig)
     cfg = cell_conf.global_conf
@@ -126,264 +128,266 @@ def characterize_comb_cell(
         "Boolean function not defined for output pin '{}'".format(output_pin)
     output_function = output_functions[output_pin]
 
-    with NgSpiceInteractive(logger=logger) as simulator:
 
-        default_input_voltages = _create_static_input_voltages(
-            cell_conf=cell_conf,
-            static_input_nets=static_input_nets,
-            static_input=[0.0 for _ in static_input_nets],
-            constant_inputs=constant_inputs,
-        )
-        default_input_voltages.update({pin: 0.0 for pin in input_pins})
+    default_input_voltages = _create_static_input_voltages(
+        cell_conf=cell_conf,
+        static_input_nets=static_input_nets,
+        static_input=[0.0 for _ in static_input_nets],
+        constant_inputs=constant_inputs,
+    )
+    default_input_voltages.update({pin: 0.0 for pin in input_pins})
 
-        # Create simulation harness.
-        simulation = CellSimulation(
-            simulator,
-            cell_name=cell_conf.cell_name,
-            cell_ports=ports,
-            input_voltages=default_input_voltages, # First set all to 0V.
-            output_load_capacitances={output_pin: 0.0}, # TODO
-            setup_statements=setup_statements,
-            ground_net=cell_conf.ground_net,
-            simulation_title=f"characterization (combinational) of {cell_conf.cell_name}"
-        )
+    # Create simulation harness.
+    simulation = CellSimulation(
+        simulator,
+        cell_name=cell_conf.cell_name,
+        cell_ports=ports,
+        input_voltages=default_input_voltages, # First set all to 0V.
+        output_load_capacitances={output_pin: 0.0}, # TODO
+        setup_statements=setup_statements,
+        ground_net=cell_conf.ground_net,
+        simulation_title=f"characterization (combinational) of {cell_conf.cell_name}"
+    )
 
-        def f(input_transition_time: float, output_cap: float):
-            """
-            Evaluate cell timing at a single input-transition-time/output-capacitance point.
-            :param input_transition_time: Transition time (slew) of the active input signal.
-            :param output_cap: Load capacitance at the output.
-            :return:
-            """
+    def f(input_transition_time: float, output_cap: float):
+        """
+        Evaluate cell timing at a single input-transition-time/output-capacitance point.
+        :param input_transition_time: Transition time (slew) of the active input signal.
+        :param output_cap: Load capacitance at the output.
+        :return:
+        """
 
-            # Empty results.
-            rise_transition_durations = []
-            fall_transition_durations = []
-            rise_delays = []
-            fall_delays = []
+        # Empty results.
+        rise_transition_durations = []
+        fall_transition_durations = []
+        rise_delays = []
+        fall_delays = []
 
-            rise_powers = []
-            fall_powers = []
+        rise_powers = []
+        fall_powers = []
 
-            for static_input in static_inputs:
+        for static_input in static_inputs:
 
-                # Check if the output is controllable with this static input.
-                bool_inputs = {net: value > 0 for net, value in zip(static_input_nets, static_input)}
+            # Check if the output is controllable with this static input.
+            bool_inputs = {net: value > 0 for net, value in zip(static_input_nets, static_input)}
 
-                bool_inputs[related_pin] = False
-                output_when_false = output_function(**bool_inputs)
-                bool_inputs[related_pin] = True
-                output_when_true = output_function(**bool_inputs)
+            bool_inputs[related_pin] = False
+            output_when_false = output_function(**bool_inputs)
+            bool_inputs[related_pin] = True
+            output_when_true = output_function(**bool_inputs)
 
-                if output_when_false == output_when_true:
-                    # The output will not change when this input is changed.
-                    # Simulation of this conditional arc can be skipped.
-                    logger.debug("Simulation skipped for conditional arc (output does not toggle): {}".format(bool_inputs))
-                    continue
+            if output_when_false == output_when_true:
+                # The output will not change when this input is changed.
+                # Simulation of this conditional arc can be skipped.
+                logger.debug("Simulation skipped for conditional arc (output does not toggle): {}".format(bool_inputs))
+                continue
 
-                # Create DC values to be applied to the input pins.
-                input_voltages = _create_static_input_voltages(
-                    cell_conf=cell_conf,
-                    static_input_nets=static_input_nets,
-                    static_input=static_input,
-                    constant_inputs=constant_inputs,
+            # Create DC values to be applied to the input pins.
+            input_voltages = _create_static_input_voltages(
+                cell_conf=cell_conf,
+                static_input_nets=static_input_nets,
+                static_input=static_input,
+                constant_inputs=constant_inputs,
+            )
+
+            logger.debug("Static input voltages: {}".format(input_voltages))
+
+            for input_rising in [True, False]:
+                simulation.reset() # Rewind the simulation.
+
+                # Simulation script file path.
+                file_name = f"lctime_combinational_" \
+                            f"slew={input_transition_time}_" \
+                            f"load={output_cap}" \
+                            f"{''.join((f'{net}={v}' for net, v in input_voltages.items() if isinstance(v, float)))}_" \
+                            f"{'rising' if input_rising else 'falling'}"
+
+                # File for debug plot of the waveforms.
+                sim_plot_file = os.path.join(cfg.workingdir, f"{file_name}_plot.svg")
+
+                bool_inputs[related_pin] = input_rising
+                expected_output = output_function(**bool_inputs)
+                initial_output_voltage = 0.0 if expected_output else vdd
+                initial_node_voltages[output_pin] = initial_output_voltage
+
+                # Get stimulus signal for related pin.
+                input_wave = StepWave(start_time=0, polarity=input_rising,
+                                      rise_threshold=0,
+                                      fall_threshold=1,
+                                      transition_time=input_transition_time)
+                input_wave.y = input_wave.y * vdd
+                input_voltages[related_pin] = input_wave
+                # Get stimulus signal for the inverted pin (if any).
+                if related_pin_inverted:
+                    input_wave_inverted = vdd - input_wave
+                    input_voltages[related_pin_inverted] = input_wave_inverted
+
+
+                # Set initial conditions
+                for net, value in input_voltages.items():
+                    if isinstance(value, float):
+                        simulation.set_initial_voltage(net, value)
+                    elif isinstance(value, PieceWiseLinear):
+                        simulation.set_initial_voltage(net, float(value(0)) )
+                        
+                # # Set initial node voltages.
+                # for pin, voltage in initial_node_voltages.items():
+                #     if pin == output_pin: # TODO
+                #         #simulation.set_capacitor_voltage(f"Cload_{pin}", voltage)
+                #         pass
+                #     simulation.set_initial_voltage(pin, float(voltage))
+                simulation.set_initial_voltage(output_pin, initial_output_voltage)
+
+                # Need to call `reset` after altering parameters (see ngspice user manual, section 13.5.5).
+                simulation.simulator.cmd("reset")
+                
+                    
+                # Get the breakpoint condition.
+                if expected_output:
+                    simulation.set_breakpoint(f"stop when v({output_pin}) > {vdd * 0.99}")
+                else:
+                    simulation.set_breakpoint(f"stop when v({output_pin}) < {vdd * 0.01}")
+
+                # Set input voltages.
+                for net, value in input_voltages.items():
+                    src = f"V{net}"
+                    if isinstance(value, float):
+                        simulation.set_voltage_dc(src, value)
+                    elif isinstance(value, PieceWiseLinear):
+                        simulation.set_voltage_dc(src, 0)
+                        simulation.set_voltage_pwl(src, value)
+
+                # Set output load.
+                simulation.set_capacitance(f"Cload_{output_pin}", output_cap)
+
+                if cfg.debug:
+                    # Dump current simulation setup which is loaded in ngspice.
+                    simulation.simulator.cmd("listing")
+                    
+                # Run simulation
+                num_data_rows = simulation.tran(t_step=cfg.time_step, t_stop=time_max)
+
+                time, voltages, currents = simulation.get_data(
+                    num_data_rows,
+                    output_voltages=[related_pin, output_pin],
+                    output_currents=[f"V{cell_conf.supply_net}", f"V{related_pin}"],
+                )
+      
+                # Retrieve data.
+                supply_current = - currents[f"V{cell_conf.supply_net}"]
+                gate_current = - currents[f"V{related_pin}"]
+                
+                input_voltage = voltages[related_pin]
+                output_voltage = voltages[output_pin]
+
+                if cfg.debug_plots:
+                    logger.debug("Create plot of waveforms: {}".format(sim_plot_file))
+                    import matplotlib
+                    matplotlib.use('Agg')
+                    import matplotlib.pyplot as plt
+                    plt.close()
+                    plt.title(f"")
+                    plt.plot(time, input_voltage, 'x-', label='input voltage')
+                    plt.plot(time, output_voltage, label='output voltage')
+                    plt.plot(time, supply_current, label='supply current')
+                    plt.legend()
+                    plt.savefig(sim_plot_file)
+                    plt.close()
+
+                # TODO: What unit does rise_power/fall_power have in liberty files???
+                # Is it really power or energy?
+                dt = time[-1] - time[0]
+                assert dt > 0.
+                gate_energy = np.mean(gate_current * input_voltage) * dt
+                supply_energy = np.mean(supply_current * vdd) * dt
+                logger.debug(f"switching energy (supply): {supply_energy}")
+                logger.debug(f"switching energy (gate): {gate_energy}")
+
+                switching_energy = gate_energy + supply_energy
+                if switching_energy < 0:
+                    logger.warn("Negative switching energy: {switching_energy}")
+                
+                v_thresh = 0.5 * vdd
+
+                # Get input signal before switching and after.
+                input_a = input_voltage[0] > v_thresh
+                input_b = input_voltage[-1] > v_thresh
+                assert input_a != input_b
+
+                # Get output signal before switching and after.
+                output_a = output_voltage[0] > v_thresh
+                output_b = output_voltage[-1] > v_thresh
+
+                # There should be an edge in the output signal.
+                # Because the input signals have been chosen that way.
+                assert output_a != output_b, "Supplied boolean function and simulation are inconsistent."
+
+                output_rising = output_b
+
+                # Normalize input/output such that both have a rising edge.
+                input_voltage = input_voltage if input_rising else vdd - input_voltage
+                output_voltage = output_voltage if output_rising else vdd - output_voltage
+                # Normalize to range [0, ..., 1]
+                input_voltage /= vdd
+                output_voltage /= vdd
+
+                # Check if signals are already stabilized after one `period`.
+                # assert abs(input_voltage[0]) < 0.01, "Input signal not yet stable at start."
+                # assert abs(1 - input_voltage[-1]) < 0.01, "Input signal not yet stable at end."
+                if output_rising:
+                    output_threshold = cfg.trip_points.output_threshold_rise
+                else:
+                    output_threshold = cfg.trip_points.output_threshold_fall
+                assert abs(output_voltage[0]) <= output_threshold, "Output signal not yet stable at start."
+                assert abs(1 - output_voltage[-1]) <= output_threshold, "Output signal not yet stable at end."
+
+                # Calculate the output slew time: the time the output signal takes to change from
+                # `slew_lower_threshold` to `slew_upper_threshold`.
+                output_transition_duration = get_slew_time(time, output_voltage, trip_points=cfg.trip_points)
+
+                # Calculate delay from the moment the input signal crosses `input_threshold` to the moment the output
+                # signal crosses `output_threshold`.
+                cell_delay = get_input_to_output_delay(time, input_voltage, output_voltage,
+                                                       trip_points=cfg.trip_points)
+
+                if output_rising:
+                    rise_delays.append(cell_delay)
+                    rise_transition_durations.append(output_transition_duration)
+                else:
+                    fall_delays.append(cell_delay)
+                    fall_transition_durations.append(output_transition_duration)
+
+                if input_rising:
+                    rise_powers.append(switching_energy)
+                else:
+                    fall_powers.append(switching_energy)
+
+        return (reduction_function(np.array(rise_delays)),
+                reduction_function(np.array(fall_delays)),
+                reduction_function(np.array(rise_transition_durations)),
+                reduction_function(np.array(fall_transition_durations)),
+                reduction_function(np.array(rise_powers)),
+                reduction_function(np.array(fall_powers)),
                 )
 
-                logger.debug("Static input voltages: {}".format(input_voltages))
+    f_vec = np.vectorize(f, cache=True)
 
-                for input_rising in [True, False]:
-                    simulation.reset() # Rewind the simulation.
+    xx, yy = np.meshgrid(input_net_transition, total_output_net_capacitance)
 
-                    # Simulation script file path.
-                    file_name = f"lctime_combinational_" \
-                                f"slew={input_transition_time}_" \
-                                f"load={output_cap}" \
-                                f"{''.join((f'{net}={v}' for net, v in input_voltages.items() if isinstance(v, float)))}_" \
-                                f"{'rising' if input_rising else 'falling'}"
+    # Evaluate timing on the grid.
+    cell_rise, cell_fall, rise_transition, fall_transition, rise_power, fall_power = f_vec(xx, yy)
 
-                    # File for debug plot of the waveforms.
-                    sim_plot_file = os.path.join(cfg.workingdir, f"{file_name}_plot.svg")
-
-                    bool_inputs[related_pin] = input_rising
-                    expected_output = output_function(**bool_inputs)
-                    initial_output_voltage = 0.0 if expected_output else vdd
-                    initial_node_voltages[output_pin] = initial_output_voltage
-
-                    # Get stimulus signal for related pin.
-                    input_wave = StepWave(start_time=0, polarity=input_rising,
-                                          rise_threshold=0,
-                                          fall_threshold=1,
-                                          transition_time=input_transition_time)
-                    input_wave.y = input_wave.y * vdd
-                    input_voltages[related_pin] = input_wave
-                    # Get stimulus signal for the inverted pin (if any).
-                    if related_pin_inverted:
-                        input_wave_inverted = vdd - input_wave
-                        input_voltages[related_pin_inverted] = input_wave_inverted
-
-
-                    # Set initial conditions
-                    for net, value in input_voltages.items():
-                        if isinstance(value, float):
-                            simulation.set_initial_voltage(net, value)
-                        elif isinstance(value, PieceWiseLinear):
-                            simulation.set_initial_voltage(net, float(value(0)) )
-                            
-                    # # Set initial node voltages.
-                    # for pin, voltage in initial_node_voltages.items():
-                    #     if pin == output_pin: # TODO
-                    #         #simulation.set_capacitor_voltage(f"Cload_{pin}", voltage)
-                    #         pass
-                    #     simulation.set_initial_voltage(pin, float(voltage))
-                    simulation.set_initial_voltage(output_pin, initial_output_voltage)
-
-                    # Need to call `reset` after altering parameters (see ngspice user manual, section 13.5.5).
-                    simulation.simulator.cmd("reset")
-                    
-                        
-                    # Get the breakpoint condition.
-                    if expected_output:
-                        simulation.set_breakpoint(f"stop when v({output_pin}) > {vdd * 0.99}")
-                    else:
-                        simulation.set_breakpoint(f"stop when v({output_pin}) < {vdd * 0.01}")
-
-                    # Set input voltages.
-                    for net, value in input_voltages.items():
-                        src = f"V{net}"
-                        if isinstance(value, float):
-                            simulation.set_voltage_dc(src, value)
-                        elif isinstance(value, PieceWiseLinear):
-                            simulation.set_voltage_dc(src, 0)
-                            simulation.set_voltage_pwl(src, value)
-
-                    # Set output load.
-                    simulation.set_capacitance(f"Cload_{output_pin}", output_cap)
-
-                    if cfg.debug:
-                        simulation.simulator.cmd("listing")
-                    num_data_rows = simulation.tran(t_step=cfg.time_step, t_stop=time_max)
-
-                    time, voltages, currents = simulation.get_data(
-                        num_data_rows,
-                        output_voltages=[related_pin, output_pin],
-                        output_currents=[f"V{cell_conf.supply_net}", f"V{related_pin}"],
-                    )
-          
-                    # Retrieve data.
-                    supply_current = - currents[f"V{cell_conf.supply_net}"]
-                    gate_current = - currents[f"V{related_pin}"]
-                    
-                    input_voltage = voltages[related_pin]
-                    output_voltage = voltages[output_pin]
-
-                    if cfg.debug_plots:
-                        logger.debug("Create plot of waveforms: {}".format(sim_plot_file))
-                        import matplotlib
-                        matplotlib.use('Agg')
-                        import matplotlib.pyplot as plt
-                        plt.close()
-                        plt.title(f"")
-                        plt.plot(time, input_voltage, 'x-', label='input voltage')
-                        plt.plot(time, output_voltage, label='output voltage')
-                        plt.plot(time, supply_current, label='supply current')
-                        plt.legend()
-                        plt.savefig(sim_plot_file)
-                        plt.close()
-
-                    # TODO: What unit does rise_power/fall_power have in liberty files???
-                    # Is it really power or energy?
-                    dt = time[-1] - time[0]
-                    assert dt > 0.
-                    gate_energy = np.mean(gate_current * input_voltage) * dt
-                    supply_energy = np.mean(supply_current * vdd) * dt
-                    logger.debug(f"switching energy (supply): {supply_energy}")
-                    logger.debug(f"switching energy (gate): {gate_energy}")
-
-                    switching_energy = gate_energy + supply_energy
-                    if switching_energy < 0:
-                        logger.warn("Negative switching energy: {switching_energy}")
-                    
-                    v_thresh = 0.5 * vdd
-
-                    # Get input signal before switching and after.
-                    input_a = input_voltage[0] > v_thresh
-                    input_b = input_voltage[-1] > v_thresh
-                    assert input_a != input_b
-
-                    # Get output signal before switching and after.
-                    output_a = output_voltage[0] > v_thresh
-                    output_b = output_voltage[-1] > v_thresh
-
-                    # There should be an edge in the output signal.
-                    # Because the input signals have been chosen that way.
-                    assert output_a != output_b, "Supplied boolean function and simulation are inconsistent."
-
-                    output_rising = output_b
-
-                    # Normalize input/output such that both have a rising edge.
-                    input_voltage = input_voltage if input_rising else vdd - input_voltage
-                    output_voltage = output_voltage if output_rising else vdd - output_voltage
-                    # Normalize to range [0, ..., 1]
-                    input_voltage /= vdd
-                    output_voltage /= vdd
-
-                    # Check if signals are already stabilized after one `period`.
-                    # assert abs(input_voltage[0]) < 0.01, "Input signal not yet stable at start."
-                    # assert abs(1 - input_voltage[-1]) < 0.01, "Input signal not yet stable at end."
-                    if output_rising:
-                        output_threshold = cfg.trip_points.output_threshold_rise
-                    else:
-                        output_threshold = cfg.trip_points.output_threshold_fall
-                    assert abs(output_voltage[0]) <= output_threshold, "Output signal not yet stable at start."
-                    assert abs(1 - output_voltage[-1]) <= output_threshold, "Output signal not yet stable at end."
-
-                    # Calculate the output slew time: the time the output signal takes to change from
-                    # `slew_lower_threshold` to `slew_upper_threshold`.
-                    output_transition_duration = get_slew_time(time, output_voltage, trip_points=cfg.trip_points)
-
-                    # Calculate delay from the moment the input signal crosses `input_threshold` to the moment the output
-                    # signal crosses `output_threshold`.
-                    cell_delay = get_input_to_output_delay(time, input_voltage, output_voltage,
-                                                           trip_points=cfg.trip_points)
-
-                    if output_rising:
-                        rise_delays.append(cell_delay)
-                        rise_transition_durations.append(output_transition_duration)
-                    else:
-                        fall_delays.append(cell_delay)
-                        fall_transition_durations.append(output_transition_duration)
-
-                    if input_rising:
-                        rise_powers.append(switching_energy)
-                    else:
-                        fall_powers.append(switching_energy)
-
-            return (reduction_function(np.array(rise_delays)),
-                    reduction_function(np.array(fall_delays)),
-                    reduction_function(np.array(rise_transition_durations)),
-                    reduction_function(np.array(fall_transition_durations)),
-                    reduction_function(np.array(rise_powers)),
-                    reduction_function(np.array(fall_powers)),
-                    )
-
-        f_vec = np.vectorize(f, cache=True)
-
-        xx, yy = np.meshgrid(input_net_transition, total_output_net_capacitance)
-
-        # Evaluate timing on the grid.
-        cell_rise, cell_fall, rise_transition, fall_transition, rise_power, fall_power = f_vec(xx, yy)
-
-        # Return the tables by liberty naming scheme.
-        return {
-            'total_output_net_capacitance': total_output_net_capacitance,
-            'input_net_transition': input_net_transition,
-            'cell_rise': cell_rise,
-            'cell_fall': cell_fall,
-            'rise_transition': rise_transition,
-            'fall_transition': fall_transition,
-            'rise_power': rise_power,
-            'fall_power': fall_power
-        }
+    # Return the tables by liberty naming scheme.
+    return {
+        'total_output_net_capacitance': total_output_net_capacitance,
+        'input_net_transition': input_net_transition,
+        'cell_rise': cell_rise,
+        'cell_fall': cell_fall,
+        'rise_transition': rise_transition,
+        'fall_transition': fall_transition,
+        'rise_power': rise_power,
+        'fall_power': fall_power
+    }
 
 def _create_static_input_voltages(
         cell_conf: CellConfig, 
