@@ -6,12 +6,15 @@ from ..cell_types import SingleEdgeDFF
 from . import timing_sequential as seq
 from ..liberty import util as liberty_util
 from ..logic import seq_recognition
+from ..characterization.ngspice_subprocess import NgSpiceInteractive, CellSimulation
+from ..lccommon.net_util import get_subcircuit_ports
 
 from liberty.types import *
 import numpy as np
 from sympy.logic import satisfiable
 
 def characterize_flip_flop_output(
+        simulation: CellSimulation,
         new_library: Group,
         new_cell_group: Group,
         conf: CharacterizationConfig,
@@ -21,6 +24,7 @@ def characterize_flip_flop_output(
         input_transition_times: np.ndarray,
         output_capacitances: np.ndarray,
 ):
+    assert isinstance(simulation, CellSimulation)
     assert isinstance(cell_type, SingleEdgeDFF)
 
     logger.info("Characterize single-edge triggered flip-flop.")
@@ -138,6 +142,7 @@ def characterize_flip_flop_output(
 
             def find_min_clock_pulse_width(clock_pulse_polarity: bool, rising_data_edge: bool):
                 min_clock_pulse_width, delay = seq.find_minimum_clock_pulse_width(
+                    simulation=simulation,
                     cell_config=cell_conf,
                     ff_clock_edge_polarity=clock_edge_polarity,
                     clock_input=clock_pin,
@@ -178,6 +183,7 @@ def characterize_flip_flop_output(
 
             # Find setup and hold times.
             result = seq.characterize_flip_flop_setup_hold(
+                simulation=simulation,
                 cell_conf=cell_conf,
                 data_in_pin=data_in_pin,
                 data_out_pin=data_out_pin,
@@ -314,6 +320,7 @@ def characterize_flip_flop_output(
             data_transition_time = 1e-13 # TODO
             
             delay, slew_time = seq.measure_clock_to_output_delay(
+                simulation,
                 cell_conf,
                 data_in_pin,
                 data_out_pin_name,

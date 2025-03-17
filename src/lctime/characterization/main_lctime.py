@@ -956,6 +956,36 @@ class CellSetup:
 
             merge_cell_types(self.cell_type_liberty, self.cell_type)
 
+    def _create_simulation(
+        self,
+        simulator: NgSpiceInteractive,
+    ) -> CellSimulation:
+        """
+        Setup the basic simulation harness.
+        """
+
+        cell_conf = self.create_cell_config()
+                
+        default_input_voltages = {pin: 0.0 for pin in self.input_pins}
+        default_input_voltages[cell_conf.supply_net] = cell_conf.global_conf.supply_voltage
+    
+        # Create a list of include files.
+        setup_statements = cell_conf.global_conf.setup_statements + [f".include {cell_conf.spice_netlist_file}"]
+    
+        # Create simulation harness.
+        simulation = CellSimulation(
+            simulator,
+            cell_name=cell_conf.cell_name,
+            cell_ports=cell_conf.spice_ports,
+            input_voltages=default_input_voltages, # First set all to 0V.
+            output_load_capacitances={p: 0.0 for p in self.output_pins}, # TODO
+            setup_statements=setup_statements,
+            ground_net=cell_conf.ground_net,
+            simulation_title=f"characterization (combinational) of {cell_conf.cell_name}"
+        )
+
+        return simulation
+
     def run(self) -> Group:
         """
         Characterize the cell and create a populated 'cell' group data structure.
@@ -1027,10 +1057,12 @@ class CellSetup:
             new_cell_group
         )
 
-        if isinstance(self.cell_type, Combinational):
-            with NgSpiceInteractive(logger=logger) as simulator:
+        with NgSpiceInteractive(logger=logger) as simulator:
+            simulation = self._create_simulation(simulator)
+
+            if isinstance(self.cell_type, Combinational):
                 characterize_combinational_output(
-                    simulator,
+                    simulation,
                     self.lctime.new_library,
                     new_cell_group,
                     self.lctime.conf,
@@ -1041,29 +1073,30 @@ class CellSetup:
                     self.output_capacitances,
                     self.input_transition_times
                 )
-        elif isinstance(self.cell_type, SingleEdgeDFF):
-            flipflop.characterize_flip_flop_output(
-                self.lctime.new_library,
-                new_cell_group,
-                self.lctime.conf,
-                self.cell_type,
-                cell_conf,
-                self.related_pin_transition,
-                self.input_transition_times,
-                output_capacitances=self.output_capacitances
-            )
-        elif isinstance(self.cell_type, Latch):
-            logger.info("Characterize latch.")
-            logger.error("Characterization of latches is not yet supported.")
+            elif isinstance(self.cell_type, SingleEdgeDFF):
+                flipflop.characterize_flip_flop_output(
+                    simulation,
+                    self.lctime.new_library,
+                    new_cell_group,
+                    self.lctime.conf,
+                    self.cell_type,
+                    cell_conf,
+                    self.related_pin_transition,
+                    self.input_transition_times,
+                    output_capacitances=self.output_capacitances
+                )
+            elif isinstance(self.cell_type, Latch):
+                logger.info("Characterize latch.")
+                logger.error("Characterization of latches is not yet supported.")
 
-            """
-            Characterization of latches is very similar to the one of flip-flops. Delays, hold and setup times
-            are measured relative to the de-activating edge of the clock signal instead of the active clock edge.
-            """
+                """
+                Characterization of latches is very similar to the one of flip-flops. Delays, hold and setup times
+                are measured relative to the de-activating edge of the clock signal instead of the active clock edge.
+                """
 
-            abort("Characterization of latches is not yet supported.")
-        else:
-            assert False, f"Unsupported cell type: {type(self.cell_type)}"
+                abort("Characterization of latches is not yet supported.")
+            else:
+                assert False, f"Unsupported cell type: {type(self.cell_type)}"
 
         assert isinstance(new_cell_group, Group)
         return new_cell_group
@@ -1278,7 +1311,7 @@ def measure_input_capacitances(
 
 
 def characterize_combinational_output(
-        simulator: NgSpiceInteractive,
+        simulation: CellSimulation,
         new_library: Group,
         new_cell_group: Group,
         conf: CharacterizationConfig,
@@ -1289,7 +1322,7 @@ def characterize_combinational_output(
         output_capacitances: np.ndarray,
         input_transition_times: np.ndarray
 ):
-    assert isinstance(simulator, NgSpiceInteractive)
+    assert isinstance(simulation, CellSimulation)
     assert isinstance(cell_type, Combinational) or isinstance(cell_type, SingleEdgeDFF)
     
     is_clock_to_output_arc = isinstance(cell_type, SingleEdgeDFF)
@@ -1398,7 +1431,7 @@ def characterize_combinational_output(
                 logger.info("Timing sense: {}".format(timing_sense))
 
                 result = characterize_comb_cell(
-                    simulator=simulator,
+                    simulation=simulation,
                     input_pins=_input_pins,
                     output_pin=output_pin_name,
                     related_pin=related_pin,

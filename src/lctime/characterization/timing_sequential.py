@@ -11,7 +11,7 @@ import os
 import tempfile
 from itertools import count
 
-from .ngspice_subprocess import simulate_cell
+from .ngspice_subprocess import CellSimulation, NgSpiceInteractive
 
 from .util import *
 from ..lccommon.net_util import get_subcircuit_ports
@@ -25,7 +25,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
+# TODO: remove?
 def ff_find_stabilization_time(
         cell_config: CellConfig,
         cell_ports: List[str],
@@ -102,6 +102,7 @@ def ff_find_stabilization_time(
 
 
 def find_minimum_clock_pulse_width(
+        simulation: CellSimulation,
         cell_config: CellConfig,
         ff_clock_edge_polarity: bool,
         clock_input: str,
@@ -140,6 +141,7 @@ def find_minimum_clock_pulse_width(
     :return: Returns a tuple of the minimal clock pulse width such that the data signal is sampled and the corresponding delay.
         (min clock pulse width, clock-to-output delay)
     """
+    assert isinstance(simulation, CellSimulation)
     assert isinstance(inverted_output, bool)
     assert isinstance(cell_config, CellConfig)
     cfg = cell_config.global_conf
@@ -181,6 +183,7 @@ def find_minimum_clock_pulse_width(
         """
 
         def delay_function_uncached(clock_pulse_width: float, max_allowed_delay: float = max_delay_estimation) -> float:
+            simulation.reset()
 
             # Generate the pulse waveform of the clock.
             clock_pulse_shape = PulseWave(
@@ -266,28 +269,30 @@ def find_minimum_clock_pulse_width(
 
             simulation_title = f"Find minimum clock pulse width: '{data_in}'-'{clock_input}'->'{data_out}', " \
                                f"pulse polarity={clock_pulse_polarity}."
+                               
+            for pin, voltage in initial_conditions.items():
+                simulation.set_initial_voltage(pin, voltage)
+            simulation.simulator.reset() # reset is required after alterparam statements
 
-            time, voltages, currents = simulate_cell(
-                cell_name=cell_config.cell_name,
-                cell_ports=cell_config.spice_ports,
-                input_voltages=input_voltages,
-                initial_voltages=initial_conditions,
-                breakpoint_statements=breakpoints,
+            simulation.set_breakpoint(breakpoint_statement)
+
+            # Set input voltages.
+            for net, value in input_voltages.items():
+                src = f"V{net}"
+                simulation.set_voltage(src, value)
+
+            # Set output loads.
+            for pin, cap in output_load_capacitances.items():
+                simulation.set_capacitance(f"Cload_{pin}", cap)
+
+            num_data_rows = simulation.tran(t_step=cfg.time_step, t_stop=simulation_duration)
+            time, voltages, currents = simulation.get_data(
+                num_data_rows,
                 output_voltages=[data_in, clock_input, data_out],
-                output_currents=[cell_config.supply_net],
-                simulation_file=sim_file,
-                simulation_output_file=sim_output_file,
-                max_simulation_time=simulation_duration,
-                simulation_title=simulation_title,
-                temperature=cfg.temperature,
-                output_load_capacitances=output_load_capacitances,
-                time_step=cfg.time_step,
-                setup_statements=includes,
-                ground_net=cell_config.ground_net,
-                debug=cfg.debug,
+                output_currents=[f"V{cell_config.supply_net}", f"V{data_in}", f"V{clock_input}"],
             )
 
-            supply_current = currents[cell_config.supply_net]
+            supply_current = currents[f"V{cell_config.supply_net}"]
             input_voltage = voltages[data_in]
             clock_voltage = voltages[clock_input]
             output_voltage = voltages[data_out]
@@ -533,6 +538,7 @@ def find_minimum_clock_pulse_width(
 
 
 def get_clock_to_output_delay(
+        simulation: CellSimulation,
         cell_conf: CellConfig,
         clock_input: str,
         data_in: str,
@@ -549,7 +555,6 @@ def get_clock_to_output_delay(
         inverted_output: bool = False,
         enable_pre_measurement_clock_cycle: bool = True,
         output_load_capacitances: Dict[str, float] = None,
-        setup_statements: List[str] = None,
         input_voltages: Dict[str, float] = None,
         include_slew: bool = False,
 ) -> float:
@@ -571,13 +576,11 @@ def get_clock_to_output_delay(
     :param enable_pre_measurement_clock_cycle: Apply a clock cycle before applying the clock edge.
         Used to initialize the internal state of a flip-flop.
         Set this to `False` for latches.
-    :param setup_statements: SPICE statements that are included at the beginning of the simulation.
-        This should be used for .INCLUDE and .LIB statements.
     :param include_slew: If set to True return a tuple of (delay time, slew time).
     :return: Returns the delay from the clock edge to the data edge.
      Returns `Inf` if the output does not toggle within the maximum simulation time.
     """
-
+    assert isinstance(simulation, CellSimulation)
     assert isinstance(inverted_output, bool)
 
     assert isinstance(cell_conf, CellConfig)
@@ -590,17 +593,14 @@ def get_clock_to_output_delay(
     trip_points = cfg.trip_points
     assert isinstance(trip_points, TripPoints)
 
+    simulation.reset()
+
     rising_data_edge_out = rising_data_edge_in ^ inverted_output
 
     supply_voltage = cfg.supply_voltage
     supply_net = cell_conf.supply_net
-    ground_net = cell_conf.ground_net
 
     logger.debug("get_clock_to_output_delay() ...")
-
-    # Load include files.
-    if setup_statements is None:
-        setup_statements = []
 
     period = max(clock_cycle_hint, input_rise_time + input_fall_time, clock_rise_time + clock_fall_time)
 
@@ -645,8 +645,6 @@ def get_clock_to_output_delay(
         # Compensate for offset.
         clk_wave -= 1
 
-    simulation_end = t_clock_edge + 4 * period
-
     # Create data pulse.
     logger.debug("Create data pulse.")
     input_wave = PulseWave(
@@ -664,10 +662,9 @@ def get_clock_to_output_delay(
 
     if input_voltages is None:
         input_voltages = dict()
-    else:
-        input_voltages = input_voltages.copy()
 
     # Set the data and clock signals.
+    input_voltages = input_voltages.copy()
     input_voltages.update({
         supply_net: supply_voltage,
         clock_input: clk_wave,
@@ -696,58 +693,53 @@ def get_clock_to_output_delay(
         # Subtract a margin on the threshold to simulate a bit longer.
         threshold = 0.1 * trip_points.output_threshold_fall
 
+
+    # Set initial conditions.
+    for pin, voltage in initial_conditions.items():
+        simulation.set_initial_voltage(pin, voltage)
+
+    # Need to call `reset` after altering parameters (see ngspice user manual, section 13.5.5).
+    simulation.simulator.cmd("reset")
+
     # Set a breakpoint that is active only short before the actual clock edge.
     # This way it ignores signal changes during the initialization.
     cmp = '>' if rising_data_edge_out else '<'
     assert t_clock_edge - period / 2 > 0
     breakpoint_statement = f"stop when v({data_out}) {cmp} {supply_voltage * threshold} " \
                            f"when time > {t_clock_edge + clock_transition_time * 0.05}"
+    
+    simulation.set_breakpoint(breakpoint_statement)
 
-    breakpoints = [breakpoint_statement]
+    # Set input voltages.
+    for net, value in input_voltages.items():
+        src = f"V{net}"
+        simulation.set_voltage(src, value)
 
-    # Simulation script file path.
-    # file_name = f"lctime_clock_to_output_delay_" \
-    #             f"{''.join((f'{net}={v}' for net, v in input_voltages.items()))}_" \
-    #             f"{'clk_rising' if rising_clock_edge else 'clk_falling'}_" \
-    #             f"{'data_rising' if rising_data_edge else 'data_falling'}"
+    # Set output loads.
+    for pin, cap in output_load_capacitances.items():
+        simulation.set_capacitance(f"Cload_{pin}", cap)
 
     file_name = f"lctime_clock_to_output_delay_" \
                 f"{'clk_rising' if rising_clock_edge else 'clk_falling'}_" \
                 f"{'data_rising' if rising_data_edge_in else 'data_falling'}"
-    sim_file = os.path.join(workingdir, f"{file_name}.sp")
 
-    # Output file for simulation results.
-    sim_output_file = os.path.join(workingdir, f"{file_name}_output.txt")
     # File for debug plot of the waveforms.
     sim_plot_file = os.path.join(workingdir, f"{file_name}_plot.svg")
-
-    simulation_title = f"Measure constraint '{data_in}'-'{clock_input}'->'{data_out}', rising_clock_edge={rising_clock_edge}."
 
     # Choose time step adaptively relative to the smalles input transition time.
     # Upper bound: set by global config.
     time_step = max(cfg.time_step, min(clock_rise_time, input_rise_time) / 128)
+    simulation_end = t_clock_edge + 4 * period
 
-    time, voltages, currents = simulate_cell(
-        cell_name=cell_conf.cell_name,
-        cell_ports=cell_conf.spice_ports,
-        input_voltages=input_voltages,
-        initial_voltages=initial_conditions,
-        breakpoint_statements=breakpoints,
+    num_data_rows = simulation.tran(t_step=time_step, t_stop=simulation_end)
+    time, voltages, currents = simulation.get_data(
+        num_data_rows,
         output_voltages=[data_in, clock_input, data_out],
-        output_currents=[supply_net],
-        simulation_file=sim_file,
-        simulation_output_file=sim_output_file,
-        max_simulation_time=simulation_end,
-        simulation_title=simulation_title,
-        temperature=cfg.temperature,
-        output_load_capacitances=output_load_capacitances,
-        time_step=time_step,
-        setup_statements=setup_statements,
-        ground_net=ground_net,
-        debug=cfg.debug,
+        output_currents=[f"V{cell_conf.supply_net}", f"V{data_in}", f"V{clock_input}"],
     )
-
-    supply_current = currents[supply_net]
+      
+    # Retrieve data.
+    supply_current = currents[f"V{supply_net}"]
     input_voltage = voltages[data_in]
     clock_voltage = voltages[clock_input]
     output_voltage = voltages[data_out]
@@ -825,6 +817,7 @@ def get_clock_to_output_delay(
 
 
 def characterize_flip_flop_setup_hold(
+        simulation: CellSimulation,
         cell_conf: CellConfig,
 
         data_in_pin: str,
@@ -855,10 +848,13 @@ def characterize_flip_flop_setup_hold(
     This should include clear/preset and scan_enable signals, if there are any.
     :return:
     """
+    assert isinstance(simulation, CellSimulation)
     assert isinstance(inverted_output, bool)
+
 
     def f(input_transition_time: float, clock_transition_time: float):
         result = measure_flip_flop_setup_hold(
+            simulation=simulation,
             cell_conf=cell_conf,
             data_in_pin=data_in_pin,
             data_out_pin=data_out_pin,
@@ -945,6 +941,7 @@ class FFSetupHoldResult:
 
 
 def measure_flip_flop_setup_hold(
+        simulation: CellSimulation,
         cell_conf: CellConfig,
         data_in_pin: str,
         data_out_pin: str,
@@ -968,6 +965,7 @@ def measure_flip_flop_setup_hold(
         Should be larger than 0. Possibly in the order of a pico-second.
     :return: Returns a `FFSetupHoldResult` object that bundles the results.
     """
+    assert isinstance(simulation, CellSimulation)
     assert isinstance(cell_conf, CellConfig)
     assert isinstance(inverted_output, bool)
     cfg = cell_conf.global_conf
@@ -983,12 +981,6 @@ def measure_flip_flop_setup_hold(
     clock_fall_time = clock_transition_time
 
     logger.debug(f"Output load capacitance: {output_load_capacitances} [F]")
-
-    # SPICE include files.
-    includes = [f".INCLUDE {cell_conf.spice_netlist_file}"]
-    includes += cfg.setup_statements
-
-    vdd = cfg.supply_voltage
 
     # Cache for faster re-evaluation of `delay_f`
     cache = dict()
@@ -1014,6 +1006,7 @@ def measure_flip_flop_setup_hold(
         result = cache.get(cache_tag)
         if result is None:
             result = get_clock_to_output_delay(
+                simulation=simulation,
                 cell_conf=cell_conf,
                 clock_input=clock_pin,
                 data_in=data_in_pin,
@@ -1029,7 +1022,6 @@ def measure_flip_flop_setup_hold(
                 clock_fall_time=clock_fall_time,
                 output_load_capacitances=output_load_capacitances,
                 clock_cycle_hint=clock_cycle_hint,
-                setup_statements=includes,
                 input_voltages=static_input_voltages,
             )
             cache[cache_tag] = result
@@ -1441,6 +1433,7 @@ def measure_flip_flop_setup_hold(
     return result
 
 def measure_clock_to_output_delay(
+        simulation: CellSimulation,
         cell_conf: CellConfig,
         data_in_pin: str,
         data_out_pin: str,
@@ -1463,6 +1456,7 @@ def measure_clock_to_output_delay(
     """
     assert isinstance(inverted_output, bool)
     assert isinstance(cell_conf, CellConfig)
+    assert isinstance(simulation, CellSimulation)
     cfg = cell_conf.global_conf
 
     assert setup_time + hold_time >= 0, "sum of setup and hold time must be positive"
@@ -1478,14 +1472,9 @@ def measure_clock_to_output_delay(
     data_fall_time = data_transition_time
 
     logger.debug(f"Output load capacitance: {output_load_capacitances} [F]")
-
-    # SPICE include files.
-    includes = [f".INCLUDE {cell_conf.spice_netlist_file}"]
-    includes += cfg.setup_statements
-
-    vdd = cfg.supply_voltage
     
     return get_clock_to_output_delay(
+        simulation=simulation,
         cell_conf=cell_conf,
         clock_input=clock_pin,
         data_in=data_in_pin,
@@ -1501,7 +1490,6 @@ def measure_clock_to_output_delay(
         clock_fall_time=clock_fall_time,
         output_load_capacitances=output_load_capacitances,
         clock_cycle_hint=clock_cycle_hint,
-        setup_statements=includes,
         input_voltages=static_input_voltages,
         include_slew=True,
     )

@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def characterize_comb_cell(
-        simulator: NgSpiceInteractive,
+        simulation: CellSimulation,
         input_pins: List[str],
         output_pin: str,
         related_pin: str,
@@ -41,7 +41,7 @@ def characterize_comb_cell(
 ) -> Dict[str, np.ndarray]:
     """
     Calculate the NLDM timing table of a cell for a given timing arc.
-    :param simulator: active ngspice instance
+    :param simulation: simulation harness
     :param constant_inputs: A truth-assignment for input pins that are static. Used for tri-state enable pins.
     :param cell_conf: Parameters and configuration for the characterization.
     :param input_net_transition: Transition times of input signals in seconds.
@@ -56,7 +56,7 @@ def characterize_comb_cell(
     :return: Returns the NLDM timing tables wrapped in a dict:
     {'cell_rise': 2d-np.ndarray, 'cell_fall': 2d-np.ndarray, ... }
     """
-    assert isinstance(simulator, NgSpiceInteractive)
+    assert isinstance(simulation, CellSimulation)
     assert isinstance(cell_conf, CellConfig)
     assert isinstance(cell_conf.global_conf, CharacterizationConfig)
     cfg = cell_conf.global_conf
@@ -65,10 +65,6 @@ def characterize_comb_cell(
     assert related_pin not in inputs_inverted, f"Active pin '{related_pin}' must not be an inverted pin of a differential pair."
     input_pins_non_inverted = [p for p in input_pins if p not in inputs_inverted]
     related_pin_inverted = cell_conf.complementary_pins.get(related_pin)
-
-    # Find ports of the SPICE netlist.
-    ports = get_subcircuit_ports(cell_conf.spice_netlist_file, cell_conf.cell_name)
-    logger.debug("Subcircuit ports: {}".format(", ".join(ports)))
 
     vdd = cfg.supply_voltage
 
@@ -89,9 +85,6 @@ def characterize_comb_cell(
         initial_node_voltages = dict()
     else:
         initial_node_voltages = initial_node_voltages.copy()
-
-    # Create a list of include files.
-    setup_statements = cfg.setup_statements + [f".include {cell_conf.spice_netlist_file}"]
 
     # Get all input nets that are not toggled during a simulation run.
     static_input_nets = [i for i in input_pins_non_inverted if i != related_pin and i not in constant_inputs]
@@ -127,27 +120,6 @@ def characterize_comb_cell(
     assert output_pin in output_functions, \
         "Boolean function not defined for output pin '{}'".format(output_pin)
     output_function = output_functions[output_pin]
-
-
-    default_input_voltages = _create_static_input_voltages(
-        cell_conf=cell_conf,
-        static_input_nets=static_input_nets,
-        static_input=[0.0 for _ in static_input_nets],
-        constant_inputs=constant_inputs,
-    )
-    default_input_voltages.update({pin: 0.0 for pin in input_pins})
-
-    # Create simulation harness.
-    simulation = CellSimulation(
-        simulator,
-        cell_name=cell_conf.cell_name,
-        cell_ports=ports,
-        input_voltages=default_input_voltages, # First set all to 0V.
-        output_load_capacitances={output_pin: 0.0}, # TODO
-        setup_statements=setup_statements,
-        ground_net=cell_conf.ground_net,
-        simulation_title=f"characterization (combinational) of {cell_conf.cell_name}"
-    )
 
     def f(input_transition_time: float, output_cap: float):
         """
@@ -388,6 +360,7 @@ def characterize_comb_cell(
         'rise_power': rise_power,
         'fall_power': fall_power
     }
+
 
 def _create_static_input_voltages(
         cell_conf: CellConfig, 
