@@ -968,6 +968,10 @@ class CellSetup:
                 
         default_input_voltages = {pin: 0.0 for pin in self.input_pins}
         default_input_voltages[cell_conf.supply_net] = cell_conf.global_conf.supply_voltage
+        if cell_conf.pwell_pin:
+            default_input_voltages[cell_conf.pwell_pin] = 0.0
+        if cell_conf.nwell_pin:
+            default_input_voltages[cell_conf.nwell_pin] = cell_conf.global_conf.supply_voltage
     
         # Create a list of include files.
         setup_statements = cell_conf.global_conf.setup_statements + [f".include {cell_conf.spice_netlist_file}"]
