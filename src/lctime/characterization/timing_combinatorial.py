@@ -223,11 +223,7 @@ def characterize_comb_cell(
                 # Set input voltages.
                 for net, value in input_voltages.items():
                     src = f"V{net}"
-                    if isinstance(value, float):
-                        simulation.set_voltage_dc(src, value)
-                    elif isinstance(value, PieceWiseLinear):
-                        simulation.set_voltage_dc(src, 0)
-                        simulation.set_voltage_pwl(src, value)
+                    simulation.set_source(src, value)
 
                 # Set output load.
                 simulation.set_capacitance(f"Cload_{output_pin}", output_cap)

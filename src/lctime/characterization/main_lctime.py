@@ -965,13 +965,18 @@ class CellSetup:
         """
 
         cell_conf = self.create_cell_config()
+
+        input_voltages = dict()
+        input_currents = dict()
+
+        for pin in self.input_pins:
+            input_voltages[pin] = 0.0
                 
-        default_input_voltages = {pin: 0.0 for pin in self.input_pins}
-        default_input_voltages[cell_conf.supply_net] = cell_conf.global_conf.supply_voltage
+        input_voltages[cell_conf.supply_net] = cell_conf.global_conf.supply_voltage
         if cell_conf.pwell_pin:
-            default_input_voltages[cell_conf.pwell_pin] = 0.0
+            input_voltages[cell_conf.pwell_pin] = 0.0
         if cell_conf.nwell_pin:
-            default_input_voltages[cell_conf.nwell_pin] = cell_conf.global_conf.supply_voltage
+            input_voltages[cell_conf.nwell_pin] = cell_conf.global_conf.supply_voltage
     
         # Create a list of include files.
         setup_statements = cell_conf.global_conf.setup_statements + [f".include {cell_conf.spice_netlist_file}"]
@@ -981,7 +986,8 @@ class CellSetup:
             simulator,
             cell_name=cell_conf.cell_name,
             cell_ports=cell_conf.spice_ports,
-            input_voltages=default_input_voltages, # First set all to 0V.
+            input_voltages=input_voltages, # First set all to 0V.
+            input_currents=input_currents,
             output_load_capacitances={p: 0.0 for p in self.output_pins}, # TODO
             setup_statements=setup_statements,
             ground_net=cell_conf.ground_net,

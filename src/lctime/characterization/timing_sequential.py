@@ -279,7 +279,7 @@ def find_minimum_clock_pulse_width(
             # Set input voltages.
             for net, value in input_voltages.items():
                 src = f"V{net}"
-                simulation.set_voltage(src, value)
+                simulation.set_source(src, value)
 
             # Set output loads.
             for pin, cap in output_load_capacitances.items():
@@ -713,7 +713,7 @@ def get_clock_to_output_delay(
     # Set input voltages.
     for net, value in input_voltages.items():
         src = f"V{net}"
-        simulation.set_voltage(src, value)
+        simulation.set_source(src, value)
 
     # Set output loads.
     for pin, cap in output_load_capacitances.items():

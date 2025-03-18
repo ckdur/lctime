@@ -47,7 +47,8 @@ class CellSimulation:
         simulator, #: NgSpiceInteractive,
         cell_name: str,
         cell_ports: List[str],
-        input_voltages: Dict[str, Union[PieceWiseLinear, float]],
+        input_voltages: Dict[str, Union[float, PieceWiseLinear]],
+        input_currents: Dict[str, Union[float, PieceWiseLinear]],
         output_load_capacitances: Dict[str, float] = None,
         setup_statements: List[str] = None,
         ground_net: str = "GND",
@@ -58,22 +59,12 @@ class CellSimulation:
         self.cell_name = cell_name
         self.cell_ports = cell_ports
         self.input_voltages = input_voltages
+        self.input_currents = input_currents
         self.simulation_title = simulation_title
         self.ground_net = ground_net
         self.temperature = 25
         self.output_load_capacitances = output_load_capacitances
         self.setup_statements = setup_statements
-
-        self.initial_voltages = dict()
-        for net, v in input_voltages.items():
-            if isinstance(v, PieceWiseLinear):
-                self.initial_voltages[net] = v(0)
-            else:
-                self.initial_voltages[net] = v
-
-        # Set default value of outputs.
-        for net in output_load_capacitances.keys():
-            self.initial_voltages[net] = 0.0
 
         missing_voltages = set(cell_ports) - {ground_net} - input_voltages.keys() - output_load_capacitances.keys()
         if missing_voltages:
@@ -81,6 +72,30 @@ class CellSimulation:
             assert False
 
         self._init_simulation()
+
+    def _initial_voltages(self) -> Dict[str, float]:
+        initial_voltages = dict()
+        for net, v in self.input_voltages.items():
+            if isinstance(v, PieceWiseLinear):
+                initial_voltages[net] = v(0)
+            else:
+                initial_voltages[net] = v
+                
+        # Set default value of outputs.
+        for net in self.output_load_capacitances.keys():
+            initial_voltages[net] = 0.0
+            
+        return initial_voltages
+        
+    def _initial_currents(self) -> Dict[str, float]:
+        initial_currents = dict()
+        for net, v in self.input_currents.items():
+            if isinstance(v, PieceWiseLinear):
+                initial_currents[net] = v(0)
+            else:
+                initial_currents[net] = v
+        return initial_currents
+        
 
     def _default_circuit(self) -> str:
         """
@@ -114,7 +129,9 @@ class CellSimulation:
             )
 
         # Generate SPICE statements of input sources.
-        signal_source_statements = _generate_input_voltage_statements(self.ground_net, self.input_voltages)
+        signal_source_statements = ""
+        signal_source_statements += _generate_input_voltage_statements(self.ground_net, self.input_voltages)
+        signal_source_statements += _generate_input_current_statements(self.ground_net, self.input_currents)
 
         sim_netlist = f"""* librecell {__name__}
 .title {self.simulation_title}
@@ -135,7 +152,7 @@ pre_set strict_errorhandling
 * Output load capacitances.
 {load_capacitance_statements}
 
-* Input and supply voltages.
+* Input and supply sources.
 {signal_source_statements}
 
 Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
@@ -149,7 +166,18 @@ Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
     def _initial_conditions_stmts(self):
         # TODO
         # Also all voltages of DC sources must be here if they are needed to compute the initial conditions.
-        return f'.ic {" ".join((f"v({net})={{ic_{net.lower()}}}" for net, _ in self.initial_voltages.items()))}'
+
+        initial_voltages = [
+            f"v({net})={{ic_{net.lower()}}}"
+            for net, _ in self._initial_voltages().items()
+        ]
+        initial_currents = [
+            f"i({net})={{ic_i_{net.lower()}}}"
+            for net, _ in self._initial_currents().items()
+        ]
+        ics = initial_voltages + initial_currents
+
+        return f'.ic {" ".join(ics)}'
 
     def _params_initial_counditions(self):
         """
@@ -157,8 +185,11 @@ Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
         """
         params = []
 
-        for net, v in self.initial_voltages.items():
+        for net, v in self._initial_voltages().items():
             params.append(f".param ic_{net.lower()}={v}")
+
+        for net, i in self._initial_currents().items():
+            params.append(f".param ic_i_{net.lower()}={i}")
 
         return "\n".join(params)
 
@@ -216,21 +247,23 @@ Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
         assert name.lower().startswith("r"), "resistor name must start with R"
         self.simulator.cmd(f"alter {name} {value}")
 
-    def set_voltage_dc(self, name: str, value: float):
-        assert name.lower().startswith("v"), "voltage source name must start with V"
+    def set_source_dc(self, name: str, value: float):
+        _name = name.lower()
+        assert _name.startswith("v") or _name.startswith("i")
         self.simulator.cmd(f"alter {name} {value}")
 
-    def set_voltage_pwl(self, name: str, pwl: PieceWiseLinear):
-        assert name.lower().startswith("v"), "voltage source name must start with V"
+    def set_source_pwl(self, name: str, pwl: PieceWiseLinear):
+        _name = name.lower()
+        assert _name.startswith("v") or _name.startswith("i")
         assert isinstance(pwl, PieceWiseLinear)
         self.simulator.cmd(f"alter {name} pwl = [ {pwl.to_spice_pwl_string()} ]")
 
-    def set_voltage(self, name: str, voltage: Union[float, PieceWiseLinear]):
-        if isinstance(voltage, PieceWiseLinear):
-            self.set_voltage_dc(name, 0.0)
-            self.set_voltage_pwl(name, voltage)
+    def set_source(self, name: str, source: Union[float, PieceWiseLinear]):
+        if isinstance(source, PieceWiseLinear):
+            self.set_source_dc(name, 0.0)
+            self.set_source_pwl(name, source)
         else:
-            self.set_voltage_dc(name, voltage)
+            self.set_source_dc(name, source)
 
     def set_initial_voltage(self, net: str, value: float):
         assert isinstance(value, float) or isinstance(value, int)
@@ -296,14 +329,19 @@ def _generate_input_voltage_statements(ground_net: str, input_voltages: Dict[str
     source_statements = []
     for net, wave in input_voltages.items():
         assert isinstance(wave, float) or isinstance(wave, PieceWiseLinear)
-        input_resistance = 0 # A small input resistance. TODO: parametrize this for each input pin
         source_statements.extend([
             __create_voltage_source_statement(ground_net, f"{net}", wave), # Ideal voltage source
         ])
-        # source_statements.extend([
-        #     __create_voltage_source_statement(ground_net, f"{net}_ideal", wave), # Ideal voltage source
-        #     f"Rinput_{net} {net}_ideal {net} {input_resistance}" # Input resistance.
-        # ])
+    return "\n".join(source_statements)
+
+def _generate_input_current_statements(ground_net: str, input_currents: Dict[str, Union[float, PieceWiseLinear]]) -> str:
+    # Generate SPICE statements for input currents.
+    source_statements = []
+    for net, wave in input_currents.items():
+        assert isinstance(wave, float) or isinstance(wave, PieceWiseLinear)
+        source_statements.extend([
+            __create_current_source_statement(ground_net, f"{net}", wave), # Ideal current source
+        ])
     return "\n".join(source_statements)
 
 def __create_voltage_source_statement(ground_net: str, net: str, voltage: Union[float, PieceWiseLinear]) -> str:
@@ -317,6 +355,18 @@ def __create_voltage_source_statement(ground_net: str, net: str, voltage: Union[
         return f"V{net} {net} {ground_net} {voltage}"
     else:
         assert False, "`voltage` must be either a float or {}".format(PieceWiseLinear)
+
+def __create_current_source_statement(ground_net: str, net: str, current: Union[float, PieceWiseLinear]) -> str:
+    """
+    Create a SPICE statement for a current source driving the 'net' with a current.
+    The current can be either a static value or a `PieceWiseLinear` function.
+    """
+    if isinstance(current, PieceWiseLinear):
+        return f"I{net} {net} {ground_net} PWL({current.to_spice_pwl_string()}) DC=0"
+    elif isinstance(current, float):
+        return f"I{net} {net} {ground_net} {current}"
+    else:
+        assert False, "`current` must be either a float or {}".format(PieceWiseLinear)
 
 class NgSpiceInteractive:
     """
