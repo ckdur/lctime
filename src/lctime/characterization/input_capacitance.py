@@ -14,7 +14,7 @@ from collections import Counter
 
 from .util import *
 from .piece_wise_linear import *
-from .ngspice_subprocess import run_simulation, CellSimulation, NgSpiceInteractive
+from .ngspice_subprocess import CellSimulation, NgSpiceInteractive
 import logging
 from typing import Dict
 
@@ -239,7 +239,7 @@ def characterize_input_capacitances(
                 [0.0, _input_current],
                 unit_y=""
             )
-            #simulation.simulator.cmd(f"alter i{active_pin.lower()} = PULSE(0 {-_input_current} 1ns 10ps 0ps 100s)")
+
             simulation.set_source(f"I{active_pin}", input_current_pwl)
             if active_pin_inverted:
                 simulation.set_source(f"I{active_pin_inverted}", -input_current_pwl)

@@ -90,6 +90,28 @@ def test_interactive_subprocess():
     print(p.stderr.readlines())
 
 
+def test_ngspice_interactive_simple():
+
+    with NgSpiceInteractive() as sim:
+
+        sim.load_circuit(r"""
+.title test RC circuit
+C1 0 A 0.001
+R1 0 A 100
+
+.ic v(a)=2
+.end
+""")
+
+        num_rows = sim.tran(0.001, 1)
+
+        time, voltages, currents = sim.get_data(num_rows, output_voltages=["A"])
+        voltage_a = voltages["A"]
+        assert time[0] == 0.0
+
+        assert abs(voltage_a[0]-2) < 1e-6
+        assert voltage_a[-1] < 0.01, "voltage over capacitor should decay"
+        
 def test_ngspice_subprocess_class():
 
     spice_simulation_netlist = f"""
@@ -114,7 +136,7 @@ Vsrc_vdd VDD GND PWL(0 0 1ms 0V 2ms {{voltage_end}})
         # ns.cmd('set filetype=ascii')
         # ns.cmd('tran 1ms 1ms')
         nrows = ns.tran(t_step='1ms', t_stop='1ms')
-        data1 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
+        data1 = ns._get_data_raw(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
         assert data1[0,1] == 0
         assert data1[-1,1] == 0
 
@@ -122,7 +144,7 @@ Vsrc_vdd VDD GND PWL(0 0 1ms 0V 2ms {{voltage_end}})
         assert err == None, f"ngspice error: {err}"
 
         nrows = ns.tran(t_step='1ms', t_stop='2ms')
-        data2 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
+        data2 = ns._get_data_raw(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
         assert data2[0,1] == 0
         assert data2[-1,1] == 1
         # ns.cmd('wrdata /dev/stdout v(VDD) v(Y)')
@@ -139,7 +161,7 @@ Vsrc_vdd VDD GND PWL(0 0 1ms 0V 2ms {{voltage_end}})
         ns.cmd("alter C1 = 2u")
         #ns.cmd("alterparam voltage_end = 2V")
         nrows = ns.tran(t_step='1ms', t_stop='2ms')
-        data2 = ns.get_data(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
+        data2 = ns._get_data_raw(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
         err = ns.readline_err()
         assert err == None, f"ngspice error: {err}"
         assert data2[0,1] == 0

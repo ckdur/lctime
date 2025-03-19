@@ -309,42 +309,17 @@ Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
 
     def get_data(self, 
                  num_rows: int, 
-                 output_voltages: List[str] = None, 
-                 output_currents: List[str] = None
-             ) -> np.ndarray:
+                 output_voltages: List[str] = [], 
+                 output_currents: List[str] = []
+             ) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
         """
         Get data points.
         :param num_rows: number of data points created by `self.tran()`
         """
 
-        sim_data = self.simulator.get_data(
+        return self.simulator.get_data(
             num_rows, output_voltages, output_currents
         )
-        
-        if sim_data.ndim != 2:
-            logger.error("Simulation failed. No data was written to the output file.")
-            if debug:
-                pass
-                # TODO logger.error(f"ngspice: {stderr}")
-            assert False, "Simulation failed. No data was written to the output file."
-
-        # Extract data from the numpy array.
-        time = sim_data[:, 0]
-        index = 1
-
-        # Put voltages into a dict.
-        voltages = dict()
-        for v_out in output_voltages:
-            voltages[v_out] = sim_data[:, index]
-            index = index + 1
-
-        # Put currents into a dict.
-        currents = dict()
-        for i_out in output_currents:
-            currents[i_out] = sim_data[:, index]
-            index = index + 1
-
-        return time, voltages, currents
 
     def reset(self):
         """
@@ -577,7 +552,46 @@ class NgSpiceInteractive:
                 self._flush()
         self.__check_err(timeout=0)
 
-    def get_data(self, num_rows: int, voltages: List[str] = None, currents: List[str] = None) -> np.ndarray:
+    def get_data(self, 
+                 num_rows: int, 
+                 output_voltages: List[str] = [], 
+                 output_currents: List[str] = []
+             ) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+        """
+        Get data points.
+        :param num_rows: number of data points created by `self.tran()`
+        """
+
+        sim_data = self._get_data_raw(
+            num_rows, output_voltages, output_currents
+        )
+        
+        if sim_data.ndim != 2:
+            logger.error("Simulation failed. No data was written to the output file.")
+            if debug:
+                pass
+                # TODO logger.error(f"ngspice: {stderr}")
+            assert False, "Simulation failed. No data was written to the output file."
+
+        # Extract data from the numpy array.
+        time = sim_data[:, 0]
+        index = 1
+
+        # Put voltages into a dict.
+        voltages = dict()
+        for v_out in output_voltages:
+            voltages[v_out] = sim_data[:, index]
+            index = index + 1
+
+        # Put currents into a dict.
+        currents = dict()
+        for i_out in output_currents:
+            currents[i_out] = sim_data[:, index]
+            index = index + 1
+
+        return time, voltages, currents
+
+    def _get_data_raw(self, num_rows: int, voltages: List[str] = None, currents: List[str] = None) -> np.ndarray:
         # TODO use wrdata into a pipe (os.mkfifo()).
         self.drop_stdout()
 
@@ -622,3 +636,4 @@ class NgSpiceInteractive:
                 break
             if err.startswith("Error"):
                 raise Exception(f"ngspice error: {err}")
+
