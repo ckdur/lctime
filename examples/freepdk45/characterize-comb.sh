@@ -18,7 +18,7 @@ lctime --liberty invx1_template.lib \
     --cell INVX1 \
     --output-loads "0.05, 0.1, 0.2, 0.4, 0.8, 1.6" \
     --slew-times "0.1, 0.2, 0.4, 0.8, 1.6, 3.2" \
-    --output invx1.lib
+    --output invx1.lib --debug
 
 
 # Here the template liberty file does NOT contain a cell specification.

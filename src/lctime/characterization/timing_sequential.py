@@ -679,7 +679,7 @@ def get_clock_to_output_delay(
 
     # Initial voltages of output nodes..
     initial_conditions = {
-        data_out: 0 if rising_data_edge_out else supply_voltage
+        data_out: 0.0 if rising_data_edge_out else supply_voltage
     }
 
     # Simulate only until output reaches threshold.

@@ -1057,17 +1057,19 @@ class CellSetup:
             cell_conf,
         )
 
-        # Measure input pin capacitances.
-        measure_input_capacitances(
-            self.lctime.conf,
-            cell_conf,
-            self.input_pins,
-            self.input_pins_non_inverted,
-            self.output_pins,
-            new_cell_group
-        )
-
         with NgSpiceInteractive(logger=logger) as simulator:
+
+            # Measure input pin capacitances.
+            measure_input_capacitances(
+                simulator,
+                self.lctime.conf,
+                cell_conf,
+                self.input_pins,
+                self.input_pins_non_inverted,
+                self.output_pins,
+                new_cell_group
+            )
+
             simulation = self._create_simulation(simulator)
 
             if isinstance(self.cell_type, Combinational):
@@ -1285,6 +1287,7 @@ def create_pg_pin_groups(
 
 
 def measure_input_capacitances(
+        simulator: NgSpiceInteractive,
         conf: CharacterizationConfig,
         cell_conf: CellConfig,
         input_pins: List[str],
@@ -1309,6 +1312,7 @@ def measure_input_capacitances(
         input_pin_group = cell_group.get_group('pin', input_pin)
 
         result = characterize_input_capacitances(
+            simulator=simulator,
             input_pins=input_pins,
             active_pin=input_pin,
             output_pins=output_pins,

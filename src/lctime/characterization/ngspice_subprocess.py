@@ -53,22 +53,39 @@ class CellSimulation:
         setup_statements: List[str] = None,
         ground_net: str = "GND",
         simulation_title: str = "<UNTITLED SIMULATION>",
-        ):
+        initial_node_voltages: Dict[str, float] = None,
+        set_initial_voltages_for_outputs: bool = True
+    ):
+        """
+        :param simulator:
+        :param cell_name: Name of the cell.
+        :param cell_ports: List of all pins in the order they appear in the SPICE subcircuit.
+        :param input_voltages: Values for driving input pins with a voltage source.
+        :param input_currents: Values for driving input pins with a current source.
+        :param output_load_capacitances: 
+        :param setup_statements: ngspice statements such as 'include' or 'lib'
+        :param ground_net: Name of the ground net.
+        :param simulation_title: Descriptive title of the simulation.
+        :param initial_node_voltages: Optionally provide initial node voltages here.
+        :param set_initial_voltages_for_outputs: Enable initial node voltage hints for output pins
+
+        """
         assert isinstance(simulator, NgSpiceInteractive)
         self.simulator = simulator
         self.cell_name = cell_name
         self.cell_ports = cell_ports
         self.input_voltages = input_voltages
         self.input_currents = input_currents
+        self.initial_node_voltages = initial_node_voltages if initial_node_voltages else dict()
         self.simulation_title = simulation_title
         self.ground_net = ground_net
         self.temperature = 25
         self.output_load_capacitances = output_load_capacitances
         self.setup_statements = setup_statements
-
-        missing_voltages = set(cell_ports) - {ground_net} - input_voltages.keys() - output_load_capacitances.keys()
-        if missing_voltages:
-            logger.warning(f"missing voltage sources for input pins: {missing_voltages}")
+        self.set_initial_voltages_for_outputs = set_initial_voltages_for_outputs 
+        missing_sources = set(cell_ports) - {ground_net} - input_voltages.keys() - input_currents.keys() - output_load_capacitances.keys()
+        if missing_sources:
+            logger.warning(f"missing sources for input pins: {missing_sources}")
             assert False
 
         self._init_simulation()
@@ -82,8 +99,12 @@ class CellSimulation:
                 initial_voltages[net] = v
                 
         # Set default value of outputs.
-        for net in self.output_load_capacitances.keys():
-            initial_voltages[net] = 0.0
+        if self.set_initial_voltages_for_outputs:
+            for net in self.output_load_capacitances.keys():
+                initial_voltages[net] = 0.0
+
+        for net, v in self.initial_node_voltages.items():
+            initial_voltages[net] = v
             
         return initial_voltages
         
@@ -131,6 +152,7 @@ class CellSimulation:
         # Generate SPICE statements of input sources.
         signal_source_statements = ""
         signal_source_statements += _generate_input_voltage_statements(self.ground_net, self.input_voltages)
+        signal_source_statements += "\n"
         signal_source_statements += _generate_input_current_statements(self.ground_net, self.input_currents)
 
         sim_netlist = f"""* librecell {__name__}
@@ -171,10 +193,11 @@ Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
             f"v({net})={{ic_{net.lower()}}}"
             for net, _ in self._initial_voltages().items()
         ]
-        initial_currents = [
-            f"i({net})={{ic_i_{net.lower()}}}"
-            for net, _ in self._initial_currents().items()
-        ]
+        initial_currents = [] # TODO
+        # initial_currents = [
+        #     f"i(V{net})={{ic_i_{net.lower()}}}"
+        #     for net, _ in self._initial_currents().items()
+        # ]
         ics = initial_voltages + initial_currents
 
         return f'.ic {" ".join(ics)}'
@@ -236,25 +259,28 @@ Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
     #         self.simulator.cmd(f"delete {num}")
 
     def set_capacitance(self, name: str, value: float):
-        assert name.lower().startswith("c"), "capacitor name must start with C"
-        self.simulator.cmd(f"alter {name} {value}")
+        name = name.lower()
+        assert name.startswith("c"), "capacitor name must start with C"
+        self.simulator.cmd(f"alter {name} = {value}")
         
     def set_capacitor_voltage(self, name: str, value: float):
-        assert name.lower().startswith("c"), "capacitor name must start with C"
-        self.simulator.cmd(f"alter {name} ic {value}")
+        name = name.lower()
+        assert name.startswith("c"), "capacitor name must start with C"
+        self.simulator.cmd(f"alter {name} ic = {value}")
 
     def set_resistance(self, name: str, value: float):
-        assert name.lower().startswith("r"), "resistor name must start with R"
-        self.simulator.cmd(f"alter {name} {value}")
+        name = name.lower()
+        assert name.startswith("r"), "resistor name must start with R"
+        self.simulator.cmd(f"alter {name} = {value}")
 
     def set_source_dc(self, name: str, value: float):
-        _name = name.lower()
-        assert _name.startswith("v") or _name.startswith("i")
-        self.simulator.cmd(f"alter {name} {value}")
+        name = name.lower()
+        assert name.startswith("v") or name.startswith("i"), "source name must start with i or v"
+        self.simulator.cmd(f"alter {name} = {value}")
 
     def set_source_pwl(self, name: str, pwl: PieceWiseLinear):
-        _name = name.lower()
-        assert _name.startswith("v") or _name.startswith("i")
+        name = name.lower()
+        assert name.startswith("v") or name.startswith("i"), "source name must start with i or v"
         assert isinstance(pwl, PieceWiseLinear)
         self.simulator.cmd(f"alter {name} pwl = [ {pwl.to_spice_pwl_string()} ]")
 
@@ -268,6 +294,10 @@ Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
     def set_initial_voltage(self, net: str, value: float):
         assert isinstance(value, float) or isinstance(value, int)
         self.simulator.cmd(f"alterparam ic_{net.lower()}={value}")
+
+    def set_initial_current(self, component: str, value: float):
+        assert isinstance(value, float) or isinstance(value, int)
+        self.simulator.cmd(f"alterparam ic_i_{component.lower()}={value}")
 
     def tran(self, t_step: float, t_stop: float, t_start=None) -> int:
         """
@@ -362,9 +392,9 @@ def __create_current_source_statement(ground_net: str, net: str, current: Union[
     The current can be either a static value or a `PieceWiseLinear` function.
     """
     if isinstance(current, PieceWiseLinear):
-        return f"I{net} {net} {ground_net} PWL({current.to_spice_pwl_string()}) DC=0"
+        return f"I{net} {ground_net} {net} PWL({current.to_spice_pwl_string()}) DC=0"
     elif isinstance(current, float):
-        return f"I{net} {net} {ground_net} {current}"
+        return f"I{net} {ground_net} {net} {current}"
     else:
         assert False, "`current` must be either a float or {}".format(PieceWiseLinear)
 
@@ -486,6 +516,7 @@ class NgSpiceInteractive:
         self._write(cmd)
         self._write('\n')
         self._flush()
+        self.__check_err(0.001) # TODO remove?
 
     def source(self, file: str):
         """
@@ -585,6 +616,9 @@ class NgSpiceInteractive:
         Raise an exception on an error.
         """
 
-        err = self.readline_err(timeout=timeout)
-        if err is not None:
-            raise Exception(f"ngspice error: {err}")
+        while True:
+            err = self.readline_err(timeout=timeout)
+            if err is None:
+                break
+            if err.startswith("Error"):
+                raise Exception(f"ngspice error: {err}")
