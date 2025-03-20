@@ -154,10 +154,6 @@ def find_minimum_clock_pulse_width(
 
     supply_voltage = cfg.supply_voltage
 
-    # SPICE include files.
-    includes = [f".INCLUDE {cell_config.spice_netlist_file}"]
-    includes += cfg.setup_statements
-
     # Load capacitance statements.
     if output_load_capacitances is None:
         output_load_capacitances = dict()
@@ -595,11 +591,9 @@ def get_clock_to_output_delay(
 
     simulation.reset()
 
-    rising_data_edge_out = rising_data_edge_in ^ inverted_output
-
     supply_voltage = cfg.supply_voltage
     supply_net = cell_conf.supply_net
-
+    
     logger.debug("get_clock_to_output_delay() ...")
 
     period = max(clock_cycle_hint, input_rise_time + input_fall_time, clock_rise_time + clock_fall_time)
@@ -678,6 +672,7 @@ def get_clock_to_output_delay(
         assert isinstance(output_load_capacitances, dict)
 
     # Initial voltages of output nodes..
+    rising_data_edge_out = rising_data_edge_in ^ inverted_output
     initial_conditions = {
         data_out: 0.0 if rising_data_edge_out else supply_voltage
     }
@@ -769,13 +764,6 @@ def get_clock_to_output_delay(
     clock_voltage = clock_voltage[start_index:]
     input_voltage = input_voltage[start_index:]
     output_voltage = output_voltage[start_index:]
-
-    # import matplotlib.pyplot as plt
-    # plt.plot(time, clock_voltage, label='clock')
-    # plt.plot(time, input_voltage)
-    # plt.plot(time, output_voltage)
-    # plt.legend()
-    # plt.show()
 
     # Normalize voltages (divide by VDD).
     clock_voltage /= supply_voltage
