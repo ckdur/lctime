@@ -397,6 +397,8 @@ class NgSpiceInteractive:
         self._stdout_reader_thread = None
         self._stderr_reader_thread = None
 
+        self._circuit_is_loaded = False
+
     def __stop(self):
         if self.proc:
             self.proc.kill()
@@ -535,6 +537,7 @@ class NgSpiceInteractive:
         Remove current circuit.
         """
         self.cmd("remcirc")
+        self._circuit_is_loaded = False
 
     def load_circuit(self, circuit: str):
         """
@@ -542,6 +545,9 @@ class NgSpiceInteractive:
         :param circuit:
         :return:
         """
+        if self._circuit_is_loaded:
+            self.remove_circuit()
+            
         lines = circuit.split('\n')
         for line in lines:
             line = line.strip()
@@ -551,6 +557,8 @@ class NgSpiceInteractive:
                 self._write('\n')
                 self._flush()
         self.__check_err(timeout=0)
+
+        self._circuit_is_loaded = True
 
     def get_data(self, 
                  num_rows: int, 
