@@ -399,6 +399,31 @@ class NgSpiceInteractive:
 
         self._circuit_is_loaded = False
 
+    def version_string(self) -> str:
+        """
+        Get ngspice version string.
+        Returns something like "ngspice-39" or "ngspice-44+".
+        Raises an exception if ngspice executable cannot be found.
+        """
+
+        output = subprocess.check_output([self.ngspice_cmd, "--version"]).decode("utf-8")
+        lines = output.split("\n")
+
+        for l in lines:
+            if "ngspice-" in l:
+                parts = l.split()
+                if len(parts) > 2:
+                    return parts[1]
+
+        return "ngspice-unknown"
+
+    def __reboot(self):
+        """
+        Restart ngspice process. Used as a workaraound for memory leaks in ngspice.
+        """
+        self.__stop()
+        self.__start();
+
     def __stop(self):
         if self.proc:
             self.proc.kill()
@@ -545,6 +570,7 @@ class NgSpiceInteractive:
         :param circuit:
         :return:
         """
+        
         if self._circuit_is_loaded:
             self.remove_circuit()
             

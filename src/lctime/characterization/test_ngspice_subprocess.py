@@ -15,6 +15,13 @@ from typing import List
 
 from .ngspice_subprocess import NgSpiceInteractive
 
+def test_version_number():
+
+    with NgSpiceInteractive() as sim:
+        version = sim.version_string()
+        assert version is not None
+        assert version.startswith("ngspice-")
+        assert version == version.strip()
 
 def test_simple_simulation():
     """Run a simple transient simulation in a ngspice subprocess and retreive the results from a file."""
