@@ -148,7 +148,6 @@ def find_minimum_clock_pulse_width(
     assert isinstance(cfg, CharacterizationConfig)
     workingdir = cell_config.workingdir
 
-    rising_data_edge_out = rising_data_edge_in ^ inverted_output
 
     logger.debug("Find minimum clock pulse width.")
 
@@ -239,8 +238,9 @@ def find_minimum_clock_pulse_width(
                 input_voltages[cell_config.pwell_pin] = 0.0
 
             # Initial voltages of output nodes.
+            rising_data_edge_out = rising_data_edge_in ^ inverted_output
             initial_conditions = {
-                data_out: cfg.supply_voltage - input_signal(0)  # The inverse of data_in.
+                data_out: 0.0 if rising_data_edge_out else supply_voltage
             }
 
             # Simulate until output signal clearly reaches the other rail.
