@@ -12,7 +12,6 @@ from PySpice.Unit.SiUnits import Farad, Second
 import PySpice.Logging.Logging as Logging
 import numpy as np
 
-from .ngspice_simulation import piece_wise_linear_voltage_source
 from .piece_wise_linear import PieceWiseLinear
 
 import matplotlib.pyplot as plt
