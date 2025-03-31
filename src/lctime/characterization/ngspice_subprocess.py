@@ -373,23 +373,79 @@ def __create_current_source_statement(ground_net: str, net: str, current: Union[
     else:
         assert False, "`current` must be either a float or {}".format(PieceWiseLinear)
 
-class NgSpiceInteractive:
+class Simulator:
     """
-    Interface to ngspice as a subprocess.
+    Abstract interface of SPICE circuit simulators.
     """
 
-    def __init__(self,
-                 ngspice_executable: str = None,
-                 logger: logging.Logger = None):
-        self.logger = logger
-        if logger is None:
-            self.logger = logging.getLogger(__name__)
-        self.ngspice_cmd = 'ngspice' if ngspice_executable is None else ngspice_executable
-        self.ngspice_args = ['-p']
-        "Run ngspice in interactive pipe mode."
+    def __init__(self):
+        pass
+
+    def simulator_name(self) -> str:
+        """
+        Get name of the simulator.
+        """
+        raise NotImplemented()
+
+    def version_string(self) -> str:
+        """
+        Get version string of the simulator.
+        """
+        raise NotImplemented()
+
+    def source(self, file: str):
+        """
+        Load a netlist from a file.
+        """
+        raise NotImplemented()
+
+    def reset(self):
+        raise NotImplemented()
+
+    def tran(self, t_step, t_stop, t_start=None, uic='') -> int:
+        """
+
+        :param t_step:
+        :param t_stop:
+        :param t_start:
+        :param uic:
+        :return: Return number of data points.
+        """
+        raise NotImplemented()
+
+    def remove_circuit(self):
+        """
+        Remove current circuit.
+        """
+        raise NotImplemented()
+
+    def load_circuit(self, circuit: str):
+        """
+        Load a circuit over stdin.
+        :param circuit:
+        :return:
+        """
+        raise NotImplemented()
+
+    def get_data(self, 
+                 num_rows: int, 
+                 output_voltages: List[str] = [], 
+                 output_currents: List[str] = []
+             ) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+        """
+        Get data points.
+        :param num_rows: number of data points created by `self.tran()`
+        """
+        raise NotImplemented()
+
+class SimulatorSubprocess(Simulator):
+
+    def __init__(self, executable: str, args: List[str] = []):
+        self.executable = executable
+        self.args = args
 
         self.proc: subprocess.Popen[str] = None
-        "ngspice process handle."
+        "process handle."
 
         self._from_stdout = queue.Queue()
         self._from_stderr = queue.Queue()
@@ -397,48 +453,9 @@ class NgSpiceInteractive:
         self._stdout_reader_thread = None
         self._stderr_reader_thread = None
 
-        self._circuit_is_loaded = False
-
-    def version_string(self) -> str:
-        """
-        Get ngspice version string.
-        Returns something like "ngspice-39" or "ngspice-44+".
-        Raises an exception if ngspice executable cannot be found.
-        """
-
-        output = subprocess.check_output([self.ngspice_cmd, "--version"]).decode("utf-8")
-        lines = output.split("\n")
-
-        for l in lines:
-            if "ngspice-" in l:
-                parts = l.split()
-                if len(parts) > 2:
-                    return parts[1]
-
-        return "ngspice-unknown"
-
-    def __reboot(self):
-        """
-        Restart ngspice process. Used as a workaraound for memory leaks in ngspice.
-        """
-        self.__stop()
-        self.__start();
-
-    def __stop(self):
-        if self.proc:
-            self.proc.kill()
-            self.proc = None
-
-    def __exit__(self, *args):
-        self.__stop()
-
-    def __enter__(self):
-        self.__start()
-        return self
-
-    def __start(self):
+    def _start(self):
         self.proc = subprocess.Popen(
-            [self.ngspice_cmd] + self.ngspice_args,
+            [self.executable] + self.args,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -477,6 +494,11 @@ class NgSpiceInteractive:
         self._stdout_reader_thread.start()
         self._stderr_reader_thread.start()
 
+    def _stop(self):
+        if self.proc:
+            self.proc.kill()
+            self.proc = None
+
     def readline(self, timeout: Optional[int] = 0.1) -> str:
         try:
             return self._from_stdout.get(block=True, timeout=timeout)
@@ -512,6 +534,60 @@ class NgSpiceInteractive:
 
     def _flush(self):
         self.proc.stdin.flush()
+
+
+
+class NgSpiceInteractive(SimulatorSubprocess):
+    """
+    Interface to ngspice as a subprocess.
+    """
+
+    def __init__(self,
+                 ngspice_executable: str = None,
+                 logger: logging.Logger = None):
+        self.logger = logger
+        if logger is None:
+            self.logger = logging.getLogger(__name__)
+        executable = 'ngspice' if ngspice_executable is None else ngspice_executable
+
+        super().__init__(executable, ["-p"])
+
+        self._circuit_is_loaded = False
+
+    def simulator_name(self) -> str:
+        return "ngspice"
+
+    def version_string(self) -> str:
+        """
+        Get ngspice version string.
+        Returns something like "ngspice-39" or "ngspice-44+".
+        Raises an exception if ngspice executable cannot be found.
+        """
+
+        output = subprocess.check_output([self.executable, "--version"]).decode("utf-8")
+        lines = output.split("\n")
+
+        for l in lines:
+            if "ngspice-" in l:
+                parts = l.split()
+                if len(parts) > 2:
+                    return parts[1]
+
+        return "ngspice-unknown"
+
+    def __reboot(self):
+        """
+        Restart ngspice process. Used as a workaraound for memory leaks in ngspice.
+        """
+        self._stop()
+        self._start();
+
+    def __exit__(self, *args):
+        self._stop()
+
+    def __enter__(self):
+        self._start()
+        return self
 
     def cmd(self, cmd: str):
         self.logger.debug(f"ngspice> {cmd}")
