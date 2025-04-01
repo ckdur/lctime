@@ -110,9 +110,10 @@ R1 0 A 100
 .end
 """)
 
-        num_rows = sim.tran(0.001, 1)
-
-        time, voltages, currents = sim.get_data(num_rows, output_voltages=["A"])
+        time, voltages, currents = sim.tran(
+            t_step=0.001, t_stop=1,
+            output_voltages=["A"]
+        )
         voltage_a = voltages["A"]
         assert time[0] == 0.0
 
@@ -142,18 +143,20 @@ Vsrc_vdd VDD GND PWL(0 0 1ms 0V 2ms {{voltage_end}})
         # ns.cmd(spice_simulation_netlist)
         # ns.cmd('set filetype=ascii')
         # ns.cmd('tran 1ms 1ms')
-        nrows = ns.tran(t_step='1ms', t_stop='1ms')
-        data1 = ns._get_data_raw(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
-        assert data1[0,1] == 0
-        assert data1[-1,1] == 0
+        time1, v1, i1 = ns.tran(t_step='1ms', t_stop='1ms',
+             output_voltages=['VDD', 'Y'], output_currents=['vsrc_vdd']
+         )
+        assert v1['VDD'][0] == 0
+        assert v1['VDD'][-1] == 0
 
         err = ns.readline_err()
         assert err == None, f"ngspice error: {err}"
 
-        nrows = ns.tran(t_step='1ms', t_stop='2ms')
-        data2 = ns._get_data_raw(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
-        assert data2[0,1] == 0
-        assert data2[-1,1] == 1
+        time, v2, i2 = ns.tran(t_step='1ms', t_stop='2ms', 
+                output_voltages=['VDD', 'Y'], output_currents=['vsrc_vdd']
+            )
+        assert v2['VDD'][0] == 0
+        assert v2['VDD'][-1] == 1
         # ns.cmd('wrdata /dev/stdout v(VDD) v(Y)')
 
         err = ns.readline_err()
@@ -167,13 +170,14 @@ Vsrc_vdd VDD GND PWL(0 0 1ms 0V 2ms {{voltage_end}})
         # Change capacitor value
         ns.cmd("alter C1 = 2u")
         #ns.cmd("alterparam voltage_end = 2V")
-        nrows = ns.tran(t_step='1ms', t_stop='2ms')
-        data2 = ns._get_data_raw(num_rows=nrows, voltages=['VDD', 'Y'], currents=['vsrc_vdd'])
+        time, v2, i2 = ns.tran(t_step='1ms', t_stop='2ms',
+                        output_voltages=['VDD', 'Y'],
+                        output_currents=['vsrc_vdd']
+                    )
         err = ns.readline_err()
         assert err == None, f"ngspice error: {err}"
-        assert data2[0,1] == 0
-        assert data2[-1,1] == 2, "failed to alter the piece-wise linear voltage source"
-        print(data2[-1, 2])
+        assert v2["VDD"][0] == 0
+        assert v2["VDD"][-1] == 2, "failed to alter the piece-wise linear voltage source"
 
 
 #class NgSpiceAsync:

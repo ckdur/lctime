@@ -281,9 +281,8 @@ def find_minimum_clock_pulse_width(
             for pin, cap in output_load_capacitances.items():
                 simulation.set_capacitance(f"Cload_{pin}", cap)
 
-            num_data_rows = simulation.tran(t_step=cfg.time_step, t_stop=simulation_duration)
-            time, voltages, currents = simulation.get_data(
-                num_data_rows,
+            time, voltages, currents = simulation.tran(
+                t_step=cfg.time_step, t_stop=simulation_duration,
                 output_voltages=[data_in, clock_input, data_out],
                 output_currents=[f"V{cell_config.supply_net}", f"V{data_in}", f"V{clock_input}"],
             )
@@ -726,9 +725,8 @@ def get_clock_to_output_delay(
     time_step = max(cfg.time_step, min(clock_rise_time, input_rise_time) / 128)
     simulation_end = t_clock_edge + 4 * period
 
-    num_data_rows = simulation.tran(t_step=time_step, t_stop=simulation_end)
-    time, voltages, currents = simulation.get_data(
-        num_data_rows,
+    time, voltages, currents = simulation.tran(
+        t_step=time_step, t_stop=simulation_end,
         output_voltages=[data_in, clock_input, data_out],
         output_currents=[f"V{cell_conf.supply_net}", f"V{data_in}", f"V{clock_input}"],
     )

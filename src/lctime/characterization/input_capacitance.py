@@ -250,9 +250,8 @@ def characterize_input_capacitances(
             for pin in output_pins:
                 simulation.set_capacitance(f"Cload_{pin}", 1e-15)
 
-            num_data_rows = simulation.tran(t_step=cfg.time_step, t_stop=time_max)
-            time, voltages, currents = simulation.get_data(
-                num_data_rows,
+            time, voltages, currents = simulation.tran(
+                t_step=cfg.time_step, t_stop=time_max,
                 output_voltages=[active_pin],
                 output_currents=[],
             )

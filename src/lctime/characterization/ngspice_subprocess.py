@@ -299,26 +299,18 @@ Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
         assert isinstance(value, float) or isinstance(value, int)
         self.simulator.cmd(f"alterparam ic_i_{component.lower()}={value}")
 
-    def tran(self, t_step: float, t_stop: float, t_start=None) -> int:
+    def tran(self, t_step: float, t_stop: float, t_start=None,
+            output_voltages: List[str] = [], 
+            output_currents: List[str] = [],
+             ) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
         """
         Run transient simulation.
 
         Return number of datapoints.
         """
-        return self.simulator.tran(t_step=t_step, t_stop=t_stop, t_start=t_start)
-
-    def get_data(self, 
-                 num_rows: int, 
-                 output_voltages: List[str] = [], 
-                 output_currents: List[str] = []
-             ) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
-        """
-        Get data points.
-        :param num_rows: number of data points created by `self.tran()`
-        """
-
-        return self.simulator.get_data(
-            num_rows, output_voltages, output_currents
+        return self.simulator.tran(
+            t_step=t_step, t_stop=t_stop, t_start=t_start,
+            output_voltages=output_voltages, output_currents=output_currents
         )
 
     def reset(self):
@@ -402,14 +394,18 @@ class Simulator:
     def reset(self):
         raise NotImplemented()
 
-    def tran(self, t_step, t_stop, t_start=None, uic='') -> int:
+    def tran(self, t_step, t_stop, t_start=None,
+            output_voltages: List[str] = [], 
+            output_currents: List[str] = [],
+             ) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
         """
 
         :param t_step:
         :param t_stop:
         :param t_start:
-        :param uic:
-        :return: Return number of data points.
+        :param output_voltages: Names of voltages which should be measured and returned
+        :param output_currents:
+        :return: A tuple of `(time, voltages, currents)`. Voltages and currents are stored in a dict by their name.
         """
         raise NotImplemented()
 
@@ -605,7 +601,7 @@ class NgSpiceInteractive(SimulatorSubprocess):
     def reset(self):
         self.cmd('reset')
 
-    def tran(self, t_step, t_stop, t_start=None, uic='') -> int:
+    def _tran(self, t_step, t_stop, t_start=None, uic='') -> int:
         """
 
         :param t_step:
@@ -662,7 +658,18 @@ class NgSpiceInteractive(SimulatorSubprocess):
 
         self._circuit_is_loaded = True
 
-    def get_data(self, 
+    def tran(self,
+            t_step: float,
+            t_stop: float, 
+            output_voltages: List[str] = [], 
+            output_currents: List[str] = [],
+            t_start: float=None,
+            ) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+        num_rows = self._tran(t_step=t_step, t_stop=t_stop, t_start=t_start)
+        
+        return self._get_data(num_rows, output_voltages, output_currents)
+
+    def _get_data(self, 
                  num_rows: int, 
                  output_voltages: List[str] = [], 
                  output_currents: List[str] = []

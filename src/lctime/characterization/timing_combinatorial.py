@@ -233,10 +233,8 @@ def characterize_comb_cell(
                     simulation.simulator.cmd("listing")
                     
                 # Run simulation
-                num_data_rows = simulation.tran(t_step=cfg.time_step, t_stop=time_max)
-
-                time, voltages, currents = simulation.get_data(
-                    num_data_rows,
+                time, voltages, currents = simulation.tran(
+                    t_step=cfg.time_step, t_stop=time_max,
                     output_voltages=[related_pin, output_pin],
                     output_currents=[f"V{cell_conf.supply_net}", f"V{related_pin}"],
                 )
