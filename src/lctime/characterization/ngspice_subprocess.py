@@ -12,6 +12,7 @@ import subprocess
 import queue
 import threading
 import logging
+import tempfile
 import numpy as np
 from typing import Dict, List, Tuple, Union, Optional
 from .piece_wise_linear import PieceWiseLinear
@@ -531,11 +532,175 @@ class SimulatorSubprocess(Simulator):
     def _flush(self):
         self.proc.stdin.flush()
 
+def test_ngspice_file_based():
+    import math
 
+    sim = NgSpiceFileBased()
+    print(sim._workdir)
+
+    vdd = 1
+    vcap_init = 0
+    sim.load_circuit(f"""
+V1 vout 0 {vdd}
+R1 vout vcap 1000
+C1 vcap 0 1e-6
+
+.ic v(vcap)={vcap_init}
+""")
+
+    t_stop = 1
+    time, voltages, currents = sim.tran(
+                t_step=1e-4, t_stop=t_stop,
+                output_voltages=['vcap', 'vout'],
+                output_currents=['v1']
+            )
+
+    assert abs(time[-1] - t_stop) < 1e-6
+    assert np.all(np.isclose(voltages['vout'], vdd))
+    assert abs(voltages['vcap'][0] - vcap_init) < 1e-3
+    assert abs(voltages['vcap'][-1] - vdd) < 1e-3
+
+class NgSpiceFileBased(SimulatorSubprocess):
+    """
+    Interface to non-interactive ngspice.
+    Writes the simulation script into a file, calls ngspice, then reads the results.
+    """
+
+    def __init__(self,
+                 ngspice_executable: str = None,
+                 workdir: str = None,
+                 logger: logging.Logger = None):
+        self.logger = logger
+        if logger is None:
+            self.logger = logging.getLogger(__name__)
+        executable = 'ngspice' if ngspice_executable is None else ngspice_executable
+
+        super().__init__(executable, ["-p"])
+
+        self._workdir = workdir
+        if workdir is None:
+            self._workdir = tempfile.mkdtemp(prefix="lctime")
+
+        self._commands = []
+        self._circuit: str = ""
+
+    def simulator_name(self) -> str:
+        return "ngspice-file-based"
+
+    def version_string(self) -> str:
+        """
+        Get ngspice version string.
+        Returns something like "ngspice-39" or "ngspice-44+".
+        Raises an exception if ngspice executable cannot be found.
+        """
+
+        output = subprocess.check_output([self.executable, "--version"]).decode("utf-8")
+        lines = output.split("\n")
+
+        for l in lines:
+            if "ngspice-" in l:
+                parts = l.split()
+                if len(parts) > 2:
+                    return parts[1]
+
+        return "ngspice-unknown"
+
+    def __exit__(self, *args):
+        pass
+
+    def __enter__(self):
+        pass
+    
+    def cmd(self, cmd: str):
+        self._commands.append(cmd)
+
+    def source(self, file: str):
+        """
+        Load a netlist.
+        """
+        self.cmd(f"source {file}")
+
+    def reset(self):
+        self.cmd('reset')
+        
+    def remove_circuit(self):
+        self._circuit = ""
+    
+    def load_circuit(self, circuit: str):
+        self._circuit = circuit
+
+    def _write_sim_file(self, path: str):
+
+        control = "\n".join(self._commands)
+        
+
+        data = f"""
+.title lctime simulation
+
+{self._circuit}
+
+.control
+{control}
+.endc
+
+.end
+        """
+
+        print(data)
+        with open(path, "w") as f:
+            f.write(data)
+
+    def _run_simulation(self, output_voltages: List[str], output_currents: List[str]):
+        simfile = os.path.join(self._workdir, "simulation.sp")
+        sim_output_file = os.path.join(self._workdir, "simulation_out.txt")
+        
+        output_voltage_stmts = " ".join(f"v({v})" for v in output_voltages)
+        output_current_stmts = " ".join(f"i({v})" for v in output_currents)
+        
+        self.cmd("set filetype=ascii")
+        self.cmd("set wr_vecnames") # Enable output of vector names in the first line
+        self.cmd(f"wrdata {sim_output_file} {output_voltage_stmts} {output_current_stmts}")
+        self.cmd("exit")
+
+        self._write_sim_file(simfile)
+
+        output = subprocess.check_output([self.executable, simfile]).decode("utf-8")
+        lines = output.split("\n")
+
+    def _get_data(self, output_voltages: List[str] = [], output_currents: List[str] = []):
+        sim_output_file = os.path.join(self._workdir, "simulation_out.txt")
+        data = np.genfromtxt(sim_output_file, skip_header=1)
+
+        time = data[:,0]
+
+        # Extract signals (strip away time)
+        data = data[:,1::2]
+        voltages = data[:, :len(output_voltages)].T
+        currents = data[:, len(output_voltages):].T
+        assert len(currents) == len(output_currents), "mismatch in number of data columns"
+        
+        voltages = {name: v for name, v in  zip(output_voltages, voltages)}
+        currents = {name: i for name, i in  zip(output_currents, currents)}
+
+        return time, voltages, currents
+
+    def tran(self,
+            t_step: float,
+            t_stop: float, 
+            output_voltages: List[str] = [], 
+            output_currents: List[str] = [],
+            t_start: float=None,
+            uic: str = ""
+            ) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+
+        self.cmd(f'tran {t_step} {t_stop} {uic}')
+        self._run_simulation(output_voltages, output_currents)
+        
+        return self._get_data(output_voltages, output_currents)
 
 class NgSpiceInteractive(SimulatorSubprocess):
     """
-    Interface to ngspice as a subprocess.
+    Interface to ngspice as an interactive subprocess.
     """
 
     def __init__(self,
@@ -551,7 +716,7 @@ class NgSpiceInteractive(SimulatorSubprocess):
         self._circuit_is_loaded = False
 
     def simulator_name(self) -> str:
-        return "ngspice"
+        return "ngspice-interactive"
 
     def version_string(self) -> str:
         """
