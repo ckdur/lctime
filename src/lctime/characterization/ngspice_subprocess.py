@@ -424,17 +424,6 @@ class Simulator:
         """
         raise NotImplemented()
 
-    def get_data(self, 
-                 num_rows: int, 
-                 output_voltages: List[str] = [], 
-                 output_currents: List[str] = []
-             ) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
-        """
-        Get data points.
-        :param num_rows: number of data points created by `self.tran()`
-        """
-        raise NotImplemented()
-
 class SimulatorSubprocess(Simulator):
 
     def __init__(self, executable: str, args: List[str] = []):
@@ -548,17 +537,20 @@ C1 vcap 0 1e-6
 .ic v(vcap)={vcap_init}
 """)
 
-    t_stop = 1
-    time, voltages, currents = sim.tran(
-                t_step=1e-4, t_stop=t_stop,
-                output_voltages=['vcap', 'vout'],
-                output_currents=['v1']
-            )
+    for _ in range(3): # Do simulation multiple times to check if 'reset' works.
+        t_stop = 1
+        time, voltages, currents = sim.tran(
+                    t_step=1e-4, t_stop=t_stop,
+                    output_voltages=['vcap', 'vout'],
+                    output_currents=['v1']
+                )
 
-    assert abs(time[-1] - t_stop) < 1e-6
-    assert np.all(np.isclose(voltages['vout'], vdd))
-    assert abs(voltages['vcap'][0] - vcap_init) < 1e-3
-    assert abs(voltages['vcap'][-1] - vdd) < 1e-3
+        assert abs(time[-1] - t_stop) < 1e-6
+        assert np.all(np.isclose(voltages['vout'], vdd))
+        assert abs(voltages['vcap'][0] - vcap_init) < 1e-3
+        assert abs(voltages['vcap'][-1] - vdd) < 1e-3
+
+        sim.reset()
 
 class NgSpiceFileBased(SimulatorSubprocess):
     """
@@ -621,6 +613,7 @@ class NgSpiceFileBased(SimulatorSubprocess):
         self.cmd(f"source {file}")
 
     def reset(self):
+        self._commands.clear()
         self.cmd('reset')
         
     def remove_circuit(self):
