@@ -201,8 +201,8 @@ class LcTime:
         self.setup_statements = []
 
         self.simulators = [
-            ('ngspice-interactive', NgSpiceInteractive),
             ('ngspice-basic', NgSpiceFileBased),
+            ('ngspice-interactive', NgSpiceInteractive),
         ]
         """
         Mapping of simulator names to simulator classes.

@@ -277,7 +277,7 @@ Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
     def set_source_dc(self, name: str, value: float):
         name = name.lower()
         assert name.startswith("v") or name.startswith("i"), "source name must start with i or v"
-        self.simulator.cmd(f"alter {name} = {value}")
+        self.simulator.cmd(f"alter {name} dc = {value}")
 
     def set_source_pwl(self, name: str, pwl: PieceWiseLinear):
         name = name.lower()
@@ -619,9 +619,11 @@ class NgSpiceFileBased(SimulatorSubprocess):
         self.cmd('reset')
         
     def remove_circuit(self):
+        self._commands = []
         self._circuit = ""
     
     def load_circuit(self, circuit: str):
+        self._commands = []
         self._circuit = circuit
 
     def _write_sim_file(self, path: str):
@@ -629,7 +631,7 @@ class NgSpiceFileBased(SimulatorSubprocess):
         control = "\n".join(self._commands)
         
 
-        data = f"""
+        spice_script = f"""
 .title lctime simulation
 
 {self._circuit}
@@ -642,7 +644,7 @@ class NgSpiceFileBased(SimulatorSubprocess):
         """
 
         with open(path, "w") as f:
-            f.write(data)
+            f.write(spice_script)
 
     def _run_simulation(self, output_voltages: List[str], output_currents: List[str]):
         simfile = os.path.join(self._workdir, "simulation.sp")
@@ -658,9 +660,14 @@ class NgSpiceFileBased(SimulatorSubprocess):
 
         self._write_sim_file(simfile)
 
-        output = subprocess.check_output([self.executable, simfile]).decode("utf-8")
-        lines = output.split("\n")
+        result = subprocess.run(
+            [self.executable, simfile],
+            capture_output=True
+        )
 
+        if result.returncode != 0:
+            raise Exception(f"ngspice failed: {result.stderr}")
+        
     def _get_data(self, output_voltages: List[str] = [], output_currents: List[str] = []):
         sim_output_file = os.path.join(self._workdir, "simulation_out.txt")
         #data = np.genfromtxt(sim_output_file, skip_header=1, ndmin=2)
