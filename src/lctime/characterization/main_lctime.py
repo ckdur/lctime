@@ -28,7 +28,7 @@ from ..logic.types import CombinationalOutput
 from .timing_combinatorial import characterize_comb_cell
 from .timing_sequential import *
 from .input_capacitance import characterize_input_capacitances
-from .ngspice_subprocess import NgSpiceInteractive
+from .ngspice_subprocess import Simulator, NgSpiceInteractive, NgSpiceFileBased
 from . import flipflop
 from . import util
 
@@ -200,6 +200,14 @@ class LcTime:
         self.conf: CharacterizationConfig = None
         self.setup_statements = []
 
+        self.simulators = [
+            ('ngspice-interactive', NgSpiceInteractive),
+            ('ngspice-basic', NgSpiceFileBased),
+        ]
+        """
+        Mapping of simulator names to simulator classes.
+        """
+
     def run(self):
         logger = logging.getLogger(__name__)
         logger.info("lctime main function")
@@ -296,6 +304,12 @@ class LcTime:
                             help='Create debug plots of simulation waveforms.')
 
         parser.add_argument('-j', '--jobs', type=int, default=1, metavar="NUM_JOBS", help="number of threads for cell-level parallelism")
+
+        parser.add_argument("--simulator",
+                            choices=[n for n, _ in self.simulators],
+                            default=self.simulators[0][0],
+                            help="circuit simulator backend to be used"
+                        )
 
         # Parse arguments
         self.args = parser.parse_args()
@@ -958,7 +972,7 @@ class CellSetup:
 
     def _create_simulation(
         self,
-        simulator: NgSpiceInteractive,
+        simulator: Simulator,
     ) -> CellSimulation:
         """
         Setup the basic simulation harness.
@@ -1057,7 +1071,12 @@ class CellSetup:
             cell_conf,
         )
 
-        with NgSpiceInteractive(logger=logger) as simulator:
+        # Get simulator backend.
+        simulator_class = dict(self.lctime.simulators)[self.lctime.args.simulator]
+        logger.debug(f"Backend class: {simulator_class.__name__}")
+                
+        with simulator_class(logger=logger) as simulator:
+            logger.info(f"Backend: {simulator.name()}")
 
             # Measure input pin capacitances.
             measure_input_capacitances(

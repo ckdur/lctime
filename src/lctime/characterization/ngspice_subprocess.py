@@ -71,7 +71,7 @@ class CellSimulation:
         :param set_initial_voltages_for_outputs: Enable initial node voltage hints for output pins
 
         """
-        assert isinstance(simulator, NgSpiceInteractive)
+        assert isinstance(simulator, Simulator)
         self.simulator = simulator
         self.cell_name = cell_name
         self.cell_ports = cell_ports
@@ -374,7 +374,7 @@ class Simulator:
     def __init__(self):
         pass
 
-    def simulator_name(self) -> str:
+    def name(self) -> str:
         """
         Get name of the simulator.
         """
@@ -525,7 +525,6 @@ def test_ngspice_file_based():
     import math
 
     sim = NgSpiceFileBased()
-    print(sim._workdir)
 
     vdd = 1
     vcap_init = 0
@@ -576,7 +575,7 @@ class NgSpiceFileBased(SimulatorSubprocess):
         self._commands = []
         self._circuit: str = ""
 
-    def simulator_name(self) -> str:
+    def name(self) -> str:
         return "ngspice-file-based"
 
     def version_string(self) -> str:
@@ -601,7 +600,7 @@ class NgSpiceFileBased(SimulatorSubprocess):
         pass
 
     def __enter__(self):
-        pass
+        return self
     
     def cmd(self, cmd: str):
         self._commands.append(cmd)
@@ -613,7 +612,10 @@ class NgSpiceFileBased(SimulatorSubprocess):
         self.cmd(f"source {file}")
 
     def reset(self):
-        self._commands.clear()
+        #self._commands.clear()
+        def take_cmd(c: str) -> bool:
+            return c.startswith("alter")
+        self._commands = [c for c in self._commands if take_cmd(c)]
         self.cmd('reset')
         
     def remove_circuit(self):
@@ -639,7 +641,6 @@ class NgSpiceFileBased(SimulatorSubprocess):
 .end
         """
 
-        print(data)
         with open(path, "w") as f:
             f.write(data)
 
@@ -662,7 +663,8 @@ class NgSpiceFileBased(SimulatorSubprocess):
 
     def _get_data(self, output_voltages: List[str] = [], output_currents: List[str] = []):
         sim_output_file = os.path.join(self._workdir, "simulation_out.txt")
-        data = np.genfromtxt(sim_output_file, skip_header=1)
+        #data = np.genfromtxt(sim_output_file, skip_header=1, ndmin=2)
+        data = np.loadtxt(sim_output_file, skiprows=1, ndmin=2)
 
         time = data[:,0]
 
@@ -708,7 +710,7 @@ class NgSpiceInteractive(SimulatorSubprocess):
 
         self._circuit_is_loaded = False
 
-    def simulator_name(self) -> str:
+    def name(self) -> str:
         return "ngspice-interactive"
 
     def version_string(self) -> str:
