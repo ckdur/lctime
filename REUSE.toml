@@ -1,0 +1,10 @@
+version = 1
+SPDX-PackageName = "lctime"
+SPDX-PackageSupplier = "Thomas Kramer <code@tkramer.ch>"
+SPDX-PackageDownloadLocation = "https://codeberg.org/librecell/lctime"
+
+[[annotations]]
+path = "test_data/freepdk45/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2007 W. Rhett Davis, Paul Franzon, Michael Bucher, and Sunil Basavarajaiah, North Carolina State University, 2008 W. Rhett Davis, Michael Bucher, and Sunil Basavarajaiah, North Carolina State University (ncsu_basekit subtree), James Stine, and Ivan Castellanos, and Oklahoma State University (osu_soc subtree), 2011 W. Rhett Davis, and Harun Demircioglu, North Carolina State University"
+SPDX-License-Identifier = "Apache-2.0"
