@@ -194,7 +194,7 @@ class CharacterizationConfig:
         #print("cap_unit_str: "+cap_unit_str)
         assert cap_unit_str.endswith('f'), "Capacitance unit string must end on 'f' for Farads."
         assert isinstance(cap_unit_str, str)
-        assert isinstance(cap_unit_factor, float)
+        assert isinstance(cap_unit_factor, float) or isinstance(cap_unit_factor, int)
         cap_unit_str = cap_unit_str.lower()
 
         time_unit_factor = float(time_unit_str[:-2])
