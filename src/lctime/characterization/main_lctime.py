@@ -160,7 +160,7 @@ def recognize_cell_from_liberty(cell_group: Group) -> Union[Latch, SingleEdgeDFF
                                for i in output.get_inputs()}
     diff = inputs_found_in_outputs - input_pins
     if diff:
-        logger.warning(f"Some input pins are used but not declared in the liberty file: {sorted(diff)}")
+        logger.warning(f"Some input pins are used but not declared in the liberty file: {sorted(map(str, diff))}")
 
     cell_type.inputs = sorted(input_pins, key=str)
 
@@ -635,7 +635,7 @@ class CellSetup:
         self.output_pins = [str(s) for s in self.cell_type_liberty.outputs.keys()]
         
         logger.info(f"Input pins as defined in liberty: {self.input_pins}")
-        logger.info(f"Output pins as defined in liberty: {sorted(self.cell_type_liberty.outputs.keys())}")
+        logger.info(f"Output pins as defined in liberty: {sorted(map(str, self.cell_type_liberty.outputs.keys()))}")
 
 
     def init_case_lookup_table(self):
