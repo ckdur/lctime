@@ -4,7 +4,7 @@ SPDX-FileCopyrightText: 2022 Thomas Kramer
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# LibreCell - Lib
+# lctime
 Characterization kit for CMOS cells.
 This Python package comes with a some stand-alone command-line tools:
 
