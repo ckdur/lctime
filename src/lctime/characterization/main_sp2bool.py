@@ -6,7 +6,7 @@ from ..logic import seq_recognition
 from . import util
 
 import argparse
-from PySpice.Unit import *
+import logging
 from ..lccommon import net_util
 from ..lccommon.net_util import load_netlist, extract_transistors
 import networkx as nx
