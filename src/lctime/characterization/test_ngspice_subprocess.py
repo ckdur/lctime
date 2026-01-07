@@ -5,7 +5,6 @@
 import tempfile
 import subprocess
 import numpy as np
-import matplotlib.pyplot as plt
 import os
 import asyncio
 import logging
@@ -71,9 +70,11 @@ exit
 
     assert all(a_time == y_time)
 
-    plt.plot(a_time, a, 'x-')
-    plt.plot(y_time, y, 'x-')
-    # Disable for automatic tests: plt.show()
+    if False:
+        import matplotlib.pyplot as plt
+        plt.plot(a_time, a, 'x-')
+        plt.plot(y_time, y, 'x-')
+        plt.show()
 
     os.remove(sim_output_file)
     os.remove(sim_file)
