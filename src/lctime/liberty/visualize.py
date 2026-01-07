@@ -3,10 +3,9 @@
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
+import sys
 from liberty.parser import parse_liberty
-
 from liberty.types import *
-import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 
@@ -36,6 +35,7 @@ def main_plot_timing():
 
     # Parse arguments
     args = parser.parse_args()
+
 
     DEBUG = args.debug
     log_level = logging.DEBUG if DEBUG else logging.INFO
@@ -96,6 +96,13 @@ def plot_timing_nldm(library: Group, table: Group):
     :param table:
     :return:
     """
+    
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("matplotlib not found")
+        sys.exit(1)
+
 
     x_axis = table.get_array('index_2')
     y_axis = table.get_array('index_1')
