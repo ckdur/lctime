@@ -6,7 +6,6 @@
 import sys
 from liberty.parser import parse_liberty
 from liberty.types import *
-from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 
 import argparse
@@ -77,6 +76,17 @@ def plot3d(x_axis: np.ndarray, y_axis: np.ndarray, z_data: np.ndarray,
     :param z_label:
     :return:
     """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("matplotlib not found")
+        sys.exit(1)
+    try:
+        from mpl_toolkits.mplot3d import Axes3D
+    except ImportError:
+        print("mpl_toolkits not found")
+        sys.exit(1)
+
     xx, yy = np.meshgrid(x_axis, y_axis)
 
     fig = plt.figure()
@@ -97,12 +107,6 @@ def plot_timing_nldm(library: Group, table: Group):
     :return:
     """
     
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError:
-        print("matplotlib not found")
-        sys.exit(1)
-
 
     x_axis = table.get_array('index_2')
     y_axis = table.get_array('index_1')
