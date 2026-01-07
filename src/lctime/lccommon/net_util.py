@@ -211,31 +211,6 @@ def extract_transistors(circuit: db.Circuit, force_lowercase: bool = False) -> T
         if isinstance(d.device_class(), db.DeviceClassMOS3Transistor)
            or isinstance(d.device_class(), db.DeviceClassMOS4Transistor)]
 
-    # with open(path) as f:
-    #     source = f.read()
-    #
-    #     ast = spice_parser.parse_spice(source)
-    #
-    #     match = [s for s in ast if s.name == subckt_name]
-    #
-    #     if len(match) < 1:
-    #         raise Exception("No valid subcircuit found in file with name '%s'." % subckt_name)
-    #
-    #     circuit = match[0]
-    #
-    #     # Get transistors
-    #     transistors = [
-    #         Transistor(get_channel_type(t.model_name), t.ns, t.ng, t.nd, channel_width=t.params['W'], name=t.name)
-    #         for t in circuit.content if type(t) is spice_parser.MOSFET
-    #     ]
-    #
-    #     for t in transistors_klayout:
-    #         print(t.channel_width)
-    #
-    #     for t in transistors:
-    #         print(t.channel_width)
-    #
-    #     return transistors, circuit.ports
 
     return transistors_klayout, set(pins)
 
