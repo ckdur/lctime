@@ -17,8 +17,6 @@ import liberty.parser as liberty_parser
 from liberty.types import *
 from ..cell_types import Combinational, SingleEdgeDFF, Latch, CellType
 
-from PySpice.Unit import *
-
 from ..logic.util import is_unate_in_xi, find_unateness_conditions
 from ..liberty import util as liberty_util
 from ..logic import functional_abstraction
@@ -41,7 +39,6 @@ import networkx as nx
 from sympy.logic import satisfiable
 import sympy.logic.boolalg
 
-from PySpice.Spice.Parser import SpiceParser
 import logging
 
 from ..licence import licence_notice_string_single_line, original_source_repository
@@ -344,8 +341,8 @@ class LcTime:
         self.netlist_file_table: Dict[str, str] = dict()
         for netlist_file in netlist_files:
             logger.info("Load SPICE netlist: {}".format(netlist_file))
-            parser = SpiceParser(path=netlist_file)
-            for sub in parser.subcircuits:
+            netlist = net_util.load_netlist(netlist_file)
+            for sub in netlist.each_circuit():
                 if sub.name in self.netlist_file_table:
                     # Abort if a sub circuit is defined in multiple netlists.
                     abort(
@@ -354,7 +351,8 @@ class LcTime:
 
     def f04_check_cell_names(self):
         # Test if all cell names can be found in the netlist files.
-        cell_names_not_found = set(self.cell_names) - self.netlist_file_table.keys()
+        cell_names = {n.upper() for n in self.cell_names} # KLayout netlist parser converts all names to upper case.
+        cell_names_not_found = set(cell_names) - self.netlist_file_table.keys()
         if cell_names_not_found:
             abort(f"Cell names not found in netlists: {', '.join(cell_names_not_found)}")
 
@@ -715,7 +713,7 @@ class CellSetup:
         cell_conf.pwell_pin = self.pwell_pin()
         cell_conf.nwell_pin = self.nwell_pin()
         cell_conf.workingdir = self.cell_workingdir
-        cell_conf.spice_netlist_file = self.lctime.netlist_file_table[self.cell_name]
+        cell_conf.spice_netlist_file = self.netlist_file_path()
         
         # Get pin ordering of spice circuit.
         cell_conf.spice_ports = get_subcircuit_ports(self.netlist_file_path(), self.cell_name)
@@ -727,7 +725,7 @@ class CellSetup:
         """
         Get path to SPICE netlist.
         """
-        return self.lctime.netlist_file_table[self.cell_name]
+        return self.lctime.netlist_file_table[self.cell_name.upper()]
 
     def get_pg_pin_name_from_liberty(self, pg_type: str) -> str:
         """
