@@ -196,9 +196,6 @@ def characterize_input_capacitances(
                         f"{''.join((f'{net}={v}' for net, v in input_voltages.items()))}_" \
                         f"{'rising' if input_rising else 'falling'}"
 
-            # File for debug plot of the waveforms.
-            sim_plot_file = os.path.join(cfg.workingdir, f"{file_name}_plot.svg")
-
             # Switch polarity of current for falling edges.
             _input_current = input_current if input_rising else -input_current
 
@@ -259,6 +256,9 @@ def characterize_input_capacitances(
             input_voltage = voltages[active_pin]
 
             if cfg.debug_plots:
+                # File for debug plot of the waveforms.
+                sim_plot_file = os.path.join(cell_conf.debug_plot_dir, f"{file_name}_plot.svg")
+
                 logger.info("Create plot of waveforms: {}".format(sim_plot_file))
                 import matplotlib
                 matplotlib.use('Agg')

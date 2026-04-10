@@ -260,8 +260,6 @@ def find_minimum_clock_pulse_width(
 
             # Output file for simulation results.
             sim_output_file = os.path.join(workingdir, f"{file_name}_output.txt")
-            # File for debug plot of the waveforms.
-            sim_plot_file = os.path.join(workingdir, f"{file_name}_plot.svg")
 
             simulation_title = f"Find minimum clock pulse width: '{data_in}'-'{clock_input}'->'{data_out}', " \
                                f"pulse polarity={clock_pulse_polarity}."
@@ -303,6 +301,8 @@ def find_minimum_clock_pulse_width(
             output_voltage = output_voltage[start_index:]
 
             if cfg.debug_plots:
+                # File for debug plot of the waveforms.
+                sim_plot_file = os.path.join(cell_config.debug_plot_dir, f"{file_name}_plot.svg")
                 # Plot data in debug mode.
                 logger.debug("Create plot of waveforms: {}".format(sim_plot_file))
                 import matplotlib

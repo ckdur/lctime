@@ -576,6 +576,7 @@ class CellSetup:
         """
         self.cell_name: str = cell_name
         self.cell_workingdir: str = None
+        self.cell_debug_plot_dir: Optional[str] = None
         self.output_capacitances = None
         self.input_transition_times = None
         self.related_pin_transition = None
@@ -593,8 +594,23 @@ class CellSetup:
         Create working directory if it does not exist yet.
         """
         self.cell_workingdir = os.path.join(self.lctime.conf.workingdir, self.cell_name)
-        if not os.path.exists(self.cell_workingdir):
-            os.mkdir(self.cell_workingdir)
+        os.makedirs(self.cell_workingdir, exist_ok=True)
+
+    def init_debug_plot_dir(self):
+        """
+        Create directory for debug plots.
+        """
+        if not self.lctime.conf.debug_plots:
+            return
+        debug_plot_base = os.path.join(self.cell_workingdir, "debug-plots")
+        os.makedirs(debug_plot_base, exist_ok=True)
+        for i in range(1024):
+            d = os.path.join(debug_plot_base, f"{i:03}")
+            if not os.path.isdir(d):
+                os.mkdir(d)
+                self.cell_debug_plot_dir = d
+                return
+            
 
     def init_indices(self):
         self.output_capacitances = self.lctime.output_capacitances
@@ -713,6 +729,7 @@ class CellSetup:
         cell_conf.pwell_pin = self.pwell_pin()
         cell_conf.nwell_pin = self.nwell_pin()
         cell_conf.workingdir = self.cell_workingdir
+        cell_conf.debug_plot_dir = self.cell_debug_plot_dir
         cell_conf.spice_netlist_file = self.netlist_file_path()
         
         # Get pin ordering of spice circuit.
@@ -1016,6 +1033,7 @@ class CellSetup:
         logger.info("Cell: {}".format(self.cell_name))
 
         self.init_workdir()
+        self.init_debug_plot_dir()
         self.init_indices()
         self.recognize_cell_type()
         self.init_pins()

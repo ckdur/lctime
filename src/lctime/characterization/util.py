@@ -71,6 +71,9 @@ class CellConfig:
         self.workingdir: Optional[str] = None
         "Directory where simulation files are put. Best on a ram-disk."
 
+        self.debug_plot_dir: Optional[str] = None
+        "Directory for debug plots."
+
         self.ground_net: str = 'GND'
         "Name of the ground net."
 

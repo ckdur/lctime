@@ -174,9 +174,6 @@ def characterize_comb_cell(
                             f"{''.join((f'{net}={v}' for net, v in input_voltages.items() if isinstance(v, float)))}_" \
                             f"{'rising' if input_rising else 'falling'}"
 
-                # File for debug plot of the waveforms.
-                sim_plot_file = os.path.join(cfg.workingdir, f"{file_name}_plot.svg")
-
                 bool_inputs[related_pin] = input_rising
                 expected_output = output_function(**bool_inputs)
                 initial_output_voltage = 0.0 if expected_output else vdd
@@ -247,6 +244,9 @@ def characterize_comb_cell(
                 output_voltage = voltages[output_pin]
 
                 if cfg.debug_plots:
+                    # File for debug plot of the waveforms.
+                    sim_plot_file = os.path.join(cell_conf.debug_plot_dir, f"{file_name}_plot.svg")
+
                     logger.debug("Create plot of waveforms: {}".format(sim_plot_file))
                     import matplotlib
                     matplotlib.use('Agg')
