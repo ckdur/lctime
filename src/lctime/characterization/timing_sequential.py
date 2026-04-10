@@ -196,7 +196,7 @@ def find_minimum_clock_pulse_width(
             clock_pulse1 = clock_pulse_shape.delayed(t_pulse1)
 
             # Create delayed second pulse.
-            time_between_pulses = 4 * pulse_width + 1e-9
+            time_between_pulses = 4 * clock_pulse_width + 1e-9
             t_pulse2 = t_pulse1 + time_between_pulses
             clock_pulse2 = clock_pulse_shape.delayed(t_pulse2)
 
