@@ -817,6 +817,7 @@ def characterize_flip_flop_setup_hold(
         inverted_output: bool = False,
         static_input_voltages: Dict[str, float] = None,
         output_load_capacitance: float = 0,
+        clock_pulse_width_guess: float = 1e-9,
 
 ) -> Dict[str, np.ndarray]:
     """
@@ -851,7 +852,8 @@ def characterize_flip_flop_setup_hold(
             data_rise_time=input_transition_time,
             data_fall_time=input_transition_time,
             clock_transition_time=clock_transition_time,
-            static_input_voltages=static_input_voltages
+            static_input_voltages=static_input_voltages,
+            clock_pulse_width_guess = clock_pulse_width_guess
         )
 
         return (
@@ -938,6 +940,7 @@ def measure_flip_flop_setup_hold(
         data_rise_time: float,
         data_fall_time: float,
         clock_transition_time: float,
+        clock_pulse_width_guess: float = 1e-9,
         hold_margin: float = 10e-12,
         setup_margin: float = 10e-12,
         static_input_voltages: Dict[str, float] = None
@@ -958,9 +961,9 @@ def measure_flip_flop_setup_hold(
 
     assert hold_margin > 0
     assert setup_margin > 0
+    assert clock_pulse_width_guess > 0
 
-    # TODO: find appropriate simulation_duration_hint
-    clock_cycle_hint = 1e-9
+    clock_cycle_hint = clock_pulse_width_guess * 2 # Add enough margin. Taking the minimal clock pulse width would likely be too short.
     logger.debug(f"simulation_duration_hint = {clock_cycle_hint}")
 
     clock_rise_time = clock_transition_time

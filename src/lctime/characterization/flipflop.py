@@ -195,7 +195,8 @@ def characterize_flip_flop_output(
 
                 output_load_capacitance=0,  # TODO: Is it accurate to assume zero output load?
 
-                static_input_voltages=static_input_voltages
+                static_input_voltages=static_input_voltages,
+                clock_pulse_width_guess=max(min_pulse_width_high, min_pulse_width_low)
             )
 
             # Get the table indices.
