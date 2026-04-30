@@ -41,7 +41,7 @@ def get_pin_information(cell_group: Group) -> Tuple[List[str], Dict[str, Combina
             if direction != 'output':
                 logger.error(f"Found non-output that with tri-state: {pin_name}")
 
-        logger.info(f"Pin '{pin_name}' {direction} {expr}")
+        logger.info(f"Pin '{pin_name}' direction={direction} expr={expr}")
 
         # Check that pin direction is defined.
         if direction is None:
