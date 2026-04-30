@@ -529,7 +529,7 @@ def find_flipflop_state_control_and_observe_pins(
     assert isinstance(cell_type, SingleEdgeDFF), "cell_type must be a SingleEdgeDFF"
     
     # Find all data pins that are relevant for the internal state of the flip-flop.
-    data_in_pins = sorted(cell_type.next_state.atoms(sympy.Symbol))
+    data_in_pins = sorted(cell_type.next_state.atoms(sympy.Symbol), key=lambda n: n.name)
     logger.debug(f"Input pins relevant for internal state: {data_in_pins}")
 
     # Find data input pins which can control the output pin.

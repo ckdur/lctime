@@ -83,7 +83,7 @@ def characterize_flip_flop_output(
                        f"Take the first one ({preset_clear_input}).")
 
     # Find all data pins that are relevant for the internal state of the flip-flop.
-    data_in_pins = sorted(cell_type.next_state.atoms(sympy.Symbol))
+    data_in_pins = sorted(cell_type.next_state.atoms(sympy.Symbol), key=lambda n: n.name)
     logger.debug(f"Input pins relevant for internal state: {data_in_pins}")
 
     assert isinstance(cell_type.internal_state,
