@@ -10,12 +10,13 @@ Measurement of the input capacitance by driving the input pin with a constant cu
 import os
 
 from itertools import product
+from collections import Counter
 
 from .util import *
 from .piece_wise_linear import *
-from .ngspice_subprocess import run_simulation
-from ..lccommon.net_util import get_subcircuit_ports
+from .ngspice_subprocess import CellSimulation, NgSpiceInteractive
 import logging
+from typing import Dict
 
 from scipy import interpolate
 
@@ -23,11 +24,12 @@ logger = logging.getLogger(__name__)
 
 
 def characterize_input_capacitances(
+        simulator: NgSpiceInteractive,
         input_pins: List[str],
         active_pin: str,
         output_pins: List[str],
         cell_conf: CellConfig
-):
+) -> Dict[str, float]:
     """
     Estimate the input capacitance of the `active_pin`.
     The estimation is done by simulating a constant current flowing into an input and measuring the
@@ -40,10 +42,20 @@ def characterize_input_capacitances(
     :param output_pins: List of cell output pins.
     :param config: Parameters for the characterization.
 
+    :returns: Dictionary containing input capacitances for rise, fall and average case.
     """
 
     assert isinstance(cell_conf, CellConfig)
     assert isinstance(cell_conf.global_conf, CharacterizationConfig)
+
+    # Check for duplicated pins
+    def duplicates(items: List) -> List:
+        counted = Counter(items)
+        return [i for i, c in counted.items() if c > 1]
+
+    assert not duplicates(input_pins), f"Duplicated input pins: {duplicates(input_pins)}"
+    assert not duplicates(output_pins), f"Duplicated output pins: {duplicates(output_pins)}"
+    
     cfg = cell_conf.global_conf
 
     inputs_inverted = cell_conf.complementary_pins.values()
@@ -53,7 +65,7 @@ def characterize_input_capacitances(
 
     logger.debug("characterize_input_capacitances()")
     # Find ports of the SPICE netlist.
-    ports = get_subcircuit_ports(cell_conf.spice_netlist_file, cell_conf.cell_name)
+    ports = cell_conf.spice_ports
     logger.debug("Subcircuit ports: {}".format(", ".join(ports)))
 
     logger.debug("Ground net: {}".format(cell_conf.ground_net))
@@ -63,16 +75,16 @@ def characterize_input_capacitances(
     logger.debug("Vdd: {} V".format(vdd))
 
     # Create a list of include files.
-    setup_statements = cfg.setup_statements + [f".include {cell_conf.spice_sim_file}"]
+    setup_statements = cfg.setup_statements + [f".include {cell_conf.spice_netlist_file}"]
 
     # Load include files.
     for setup in setup_statements:
         logger.debug(f"Setup statement: {setup}")
     setup_statements_string = "\n".join(setup_statements)
 
-    # Add output load capacitance. Right now this is 0F.
-    output_load_statements = "\n".join((f"Cload_{p} {p} {cell_conf.ground_net} 0" for p in output_pins))
-
+    # Add output load capacitance. Right now this is 1fF.
+    output_load_statements = "\n".join((f"Cload_{p} {p} {cell_conf.ground_net} 1f" for p in output_pins))
+        
     # Choose a maximum time to run the simulation.
     time_max = cfg.time_step * 1e6
 
@@ -86,6 +98,18 @@ def characterize_input_capacitances(
 
     logger.debug("Measuring input capacitance.")
 
+    # If the ground net is not called GND, then it must be connected to GND or 0.
+    # This seems to be a must for SPICE simulators.
+    # See: https://codeberg.org/librecell/lctime/issues/12#issuecomment-2173526
+    if cell_conf.ground_net not in ["GND", "gnd", "0"]:
+        logger.debug(f"Connect ground net `{cell_conf.ground_net}` to simulators ground `0`.")
+        ground_connection = f"* Connect ground net to GND\n" \
+        f"vgnd {cell_conf.ground_net} 0 0"
+    else:
+        # Using standard name for ground net.
+        ground_connection = ""
+
+
     # Generate all possible input combinations for the static input pins.
     static_input_nets = [i for i in input_pins_non_inverted if i != active_pin]
     num_inputs = len(static_input_nets)
@@ -96,14 +120,58 @@ def characterize_input_capacitances(
     input_current = cfg.input_current_for_capacitance_measurement
     logger.debug("Input current: {}".format(input_current))
 
+    simulator.reset()
+
+    input_voltages = dict()
+    input_currents = dict()
+
+    for pin in input_pins:
+        if pin != active_pin:
+            input_voltages[pin] = 0.0
+    input_currents[active_pin] = 0.0
+    if active_pin_inverted:
+        input_current[active_pin_inverted] = 0.0
+            
+    input_voltages[cell_conf.supply_net] = cell_conf.global_conf.supply_voltage
+    if cell_conf.pwell_pin:
+        input_voltages[cell_conf.pwell_pin] = 0.0
+    if cell_conf.nwell_pin:
+        input_voltages[cell_conf.nwell_pin] = cell_conf.global_conf.supply_voltage
+    # Create a list of include files.
+    setup_statements = cell_conf.global_conf.setup_statements + [f".include {cell_conf.spice_netlist_file}"]
+
+    initial_node_voltages = {active_pin: 0.0}
+    if active_pin_inverted:
+        initial_node_voltages[active_pin_inverted] = 0.0
+    
+    # Create simulation harness.
+    simulation = CellSimulation(
+        simulator,
+        cell_name=cell_conf.cell_name,
+        cell_ports=cell_conf.spice_ports,
+        input_voltages=input_voltages, # First set all to 0V.
+        input_currents=input_currents,
+        output_load_capacitances={p: 1e-15 for p in output_pins}, # TODO
+        initial_node_voltages=initial_node_voltages,
+        setup_statements=setup_statements,
+        ground_net=cell_conf.ground_net,
+        simulation_title=f"measure input capacitance of {cell_conf.cell_name} {active_pin}",
+        # Let ngspice find the initial voltages for output pins.
+        set_initial_voltages_for_outputs=False
+    )
+
+
     # Loop through all combinations of inputs.
     capacitances_rising = []
     capacitances_falling = []
     for static_input in static_inputs:
         for input_rising in [True, False]:
+            simulation.reset()
 
             # Get voltages at static inputs.
             input_voltages = {net: cfg.supply_voltage * value for net, value in zip(static_input_nets, static_input)}
+            # Set supply voltage.
+            input_voltages[cell_conf.supply_net] = cfg.supply_voltage
 
             # Add input voltages for inverted inputs of differential pairs.
             for p in static_input_nets:
@@ -113,18 +181,20 @@ def characterize_input_capacitances(
                     # Add the inverted input voltage.
                     input_voltages[inv] = cfg.supply_voltage - input_voltages[p]
 
+            # Add nwell voltage
+            if cell_conf.nwell_pin is not None:
+                input_voltages[cell_conf.nwell_pin] = cfg.supply_voltage
+                
+            # Add pwell voltage
+            if cell_conf.pwell_pin is not None:
+                input_voltages[cell_conf.pwell_pin] = 0.0
+                
             logger.debug("Static input voltages: {}".format(input_voltages))
 
             # Simulation script file path.
             file_name = f"lctime_input_capacitance_" \
                         f"{''.join((f'{net}={v}' for net, v in input_voltages.items()))}_" \
                         f"{'rising' if input_rising else 'falling'}"
-            sim_file = os.path.join(cfg.workingdir, f"{file_name}.sp")
-
-            # Output file for simulation results.
-            sim_output_file = os.path.join(cfg.workingdir, f"{file_name}_output.txt")
-            # File for debug plot of the waveforms.
-            sim_plot_file = os.path.join(cfg.workingdir, f"{file_name}_plot.svg")
 
             # Switch polarity of current for falling edges.
             _input_current = input_current if input_rising else -input_current
@@ -138,104 +208,64 @@ def characterize_input_capacitances(
                 breakpoint_statement = f"stop when v({active_pin}) > {vdd * 0.9}"
             else:
                 breakpoint_statement = f"stop when v({active_pin}) < {vdd * 0.1}"
-
-            static_supply_voltage_statements = "\n".join(
-                (f"Vinput_{net} {cell_conf.ground_net} {net} {voltage}" for net, voltage in input_voltages.items()))
-
+                
             # Initial node voltages.
-            initial_conditions = {
-                active_pin: initial_voltage,
-                cell_conf.supply_net: cfg.supply_voltage
-            }
             # Add static input voltages
-            initial_conditions.update(input_voltages)
+            initial_conditions = input_voltages.copy()
+            initial_conditions[active_pin] = initial_voltage
+            initial_conditions[cell_conf.supply_net] = cfg.supply_voltage
+
             # Add initial voltage of inverted input pin (if any).
             if active_pin_inverted:
                 initial_conditions[active_pin_inverted] = initial_voltage_inv
 
-            # Create SPICE statements for the input current sources that drive the active pin.
-            input_current_source_statements = [
-                f"Iinput {cell_conf.ground_net} {active_pin} PULSE(0 {_input_current} 1ns 10ps 0ps 100s)"
-            ]
-            if active_pin_inverted is not None:
-                input_current_source_statements.append(
-                    f"Iinput_inv {cell_conf.ground_net} {active_pin_inverted} PULSE(0 {-_input_current} 1ns 10ps 0ps 100s)"
-                )
-            input_current_source_statements = "\n".join(input_current_source_statements)
+            for net, voltage in initial_conditions.items():
+                simulation.set_initial_voltage(net, voltage)
+            simulation.simulator.reset()
 
-            # Create ngspice simulation script.
-            sim_netlist = f"""* librecell {__name__}
-.title Measure input capacitance of pin {active_pin}
+            # Set input voltages.
+            for net, value in input_voltages.items():
+                src = f"V{net}"
+                simulation.set_source(src, value)
 
-.option TEMP={cfg.temperature}
+            # Set input current.
+            ps = 1e-15
+            ns = 1e-9
+            input_current_pwl = PieceWiseLinear(
+                [1*ns, 1*ns+1*ps],
+                [0.0, _input_current],
+                unit_y=""
+            )
 
-{setup_statements_string}
+            simulation.set_source(f"I{active_pin}", input_current_pwl)
+            if active_pin_inverted:
+                simulation.set_source(f"I{active_pin_inverted}", -input_current_pwl)
 
-Xcircuit_under_test {" ".join(ports)} {cell_conf.cell_name}
+            simulation.set_breakpoint(breakpoint_statement)
 
-{output_load_statements}
+            # Set output loads.
+            for pin in output_pins:
+                simulation.set_capacitance(f"Cload_{pin}", 1e-15)
 
-Vsupply {cell_conf.supply_net} {cell_conf.ground_net} {cfg.supply_voltage}
-Vgnd {cell_conf.ground_net} 0 0
+            time, voltages, currents = simulation.tran(
+                t_step=cfg.time_step, t_stop=time_max,
+                output_voltages=[active_pin],
+                output_currents=[],
+            )
 
-* Input current sources.
-{input_current_source_statements}
-
-* Static input voltages.
-{static_supply_voltage_statements}
-
-* Initial conditions.
-* Also all voltages of DC sources must be here if they are needed to compute the initial conditions.
-.ic {" ".join((f"v({net})={v}" for net, v in initial_conditions.items()))}
-
-.control
-
-set filetype=ascii
-set wr_vecnames
-
-* Breakpoints
-{breakpoint_statement}
-
-* Transient simulation, use initial conditions.
-tran {cfg.time_step} {time_max} uic
-wrdata {sim_output_file} v({active_pin}) {" ".join((f"v({p})" for p in output_pins))}
-exit
-.endc
-
-.end
-"""
-
-            # Dump netlist.
-            logger.debug(sim_netlist)
-
-            # Dump simulation script to the file.
-            # logger.debug(f"Write simulation netlist: {sim_file}")
-            open(sim_file, "w").write(sim_netlist)
-
-            # Run simulation.
-            stdout, stderr = run_simulation(sim_file)
-
-            # Fetch simulation results.
-            # logger.debug("Load simulation output.")
-            sim_data = np.loadtxt(sim_output_file, skiprows=1)
-
-            if sim_data.ndim != 2:
-                logger.error("Simulation failed. No data was written to the output file.")
-                if cfg.debug:
-                    logger.error(f"ngspice: {stderr}")
-                assert False, "Simulation failed. No data was written to the output file."
-
-            time = sim_data[:, 0]
-            input_voltage = sim_data[:, 1]
+            input_voltage = voltages[active_pin]
 
             if cfg.debug_plots:
-                logger.debug("Create plot of waveforms: {}".format(sim_plot_file))
+                # File for debug plot of the waveforms.
+                sim_plot_file = os.path.join(cell_conf.debug_plot_dir, f"{file_name}_plot.svg")
+
+                logger.info("Create plot of waveforms: {}".format(sim_plot_file))
                 import matplotlib
                 matplotlib.use('Agg')
                 import matplotlib.pyplot as plt
                 plt.close()
                 plt.title(f"Measure input capacitance of pin {active_pin}.")
-                plt.plot(time, input_voltage, label=active_pin)
+                plt.plot(time, input_voltage, label=f"V({active_pin}")
                 plt.legend()
                 plt.savefig(sim_plot_file)
                 plt.close()
@@ -262,8 +292,6 @@ exit
             f_input_voltage = interpolate.interp1d(x=time, y=input_voltage)
             dt = transition_time2 - transition_time1
             dv = f_input_voltage(transition_time2) - f_input_voltage(transition_time1)
-            # dv = input_voltage[-1] - input_voltage[0]
-            # dt = time[-1] - time[0]
 
             # Compute capacitance.
             capacitance = float(_input_current) / (float(dv) / float(dt))

@@ -1,6 +1,4 @@
-# Copyright (c) 2019 Thomas Kramer.
-# SPDX-FileCopyrightText: 2022 Thomas Kramer <code@tkramer.ch>
-#
+# SPDX-FileCopyrightText: 2019-2024 Thomas Kramer <code@tkramer.ch>
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 from ..logic import functional_abstraction
@@ -8,7 +6,7 @@ from ..logic import seq_recognition
 from . import util
 
 import argparse
-from PySpice.Unit import *
+import logging
 from ..lccommon import net_util
 from ..lccommon.net_util import load_netlist, extract_transistors
 import networkx as nx

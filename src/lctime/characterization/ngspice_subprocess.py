@@ -12,6 +12,7 @@ import subprocess
 import queue
 import threading
 import logging
+import tempfile
 import numpy as np
 from typing import Dict, List, Tuple, Union, Optional
 from .piece_wise_linear import PieceWiseLinear
@@ -41,249 +42,396 @@ def run_simulation(sim_file: str, ngspice_executable: str = 'ngspice'):
         logger.error(msg)
         raise FileNotFoundError(msg)
 
+class CellSimulation:
 
-def simulate_cell(
+    def __init__(self,
+        simulator, #: NgSpiceInteractive,
         cell_name: str,
         cell_ports: List[str],
-        input_voltages: Dict[str, Union[PieceWiseLinear, float]],
-        initial_voltages: Dict[str, float],
-        breakpoint_statements: List[str],
-        output_voltages: List[str],
-        output_currents: List[str],
-        simulation_file: str,
-        simulation_output_file: str,
-        max_simulation_time: float,
-        simulation_title: str = "<UNTITLED SIMULATION>",
-        temperature: float = 25,
+        input_voltages: Dict[str, Union[float, PieceWiseLinear]],
+        input_currents: Dict[str, Union[float, PieceWiseLinear]],
         output_load_capacitances: Dict[str, float] = None,
-        time_step: float = 100.0e-12,
         setup_statements: List[str] = None,
-        ground_net: str = 'GND',
-        debug: bool = False,
-) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
-    """Simulate a circuit with given input signals and measure voltages and currents.
-
-    :param cell_name: Name of the cell to be characterized. Must match with the name used in netlist and liberty.
-    :param cell_ports: All circuit pins/ports in the same ordering as used in the SPICE circuit model.
-    :param input_voltages: Dictionary holding input voltages or waveforms per net.
-    :param initial_voltages: Additional initial voltages per net name at the beginning of the simulation.
-        By default initial voltages are derived from the input voltages. This is useful for specifying initial voltages of outputs.
-    :param breakpoint_statements: List of ngspice breakpoint statements.
-    :param output_voltages: List of voltages that should be in the output of this function.
-    :param output_currents: List of sources whose current should be in the output of this function.
-    :param simulation_file: Path to the SPICE file which will be generated.
-    :param simulation_output_file: Path of the simulation output data.
-    :param max_simulation_time: Maximal simulation time in seconds.
-    :param simulation_title: Title of the simulation that will be written into the simulation file.
-    :param temperature: Temperature of the simulation.
-    :param output_load_capacitances: A dict with (net, capacitance) pairs which defines the load capacitances attached to certain nets.
-    :param time_step: Simulation time step.
-    :param setup_statements: SPICE statements that are included at the beginning of the simulation.
-        This should be used for .INCLUDE and .LIB statements.
-    :param ground_net: The name of the ground net.
-    :param debug: Enable more verbose debugging output such as plots of the simulations.
-    :return: Returns tuple (time, Dict[net, voltage], Dict[source, current]).
-    The output voltages and currents correspond to the values specified in `output_voltages` and `output_currents`.
-    """
-
-    logger.debug(f"Simulate cell: {cell_name}")
-    logger.debug(f"Cell ports: {cell_ports}")
-    logger.debug(f"Initial voltages: {initial_voltages} [V]")
-    logger.debug(f"Ground net: {ground_net}")
-    logger.debug(f"Temperature: {temperature} C")
-    logger.debug(f"Max. simulation time: {max_simulation_time} s")
-
-    # Create a list of include files.
-    if setup_statements is None:
-        setup_statements = []
-
-    # Load include files.
-    setup_statements_string = "\n".join(setup_statements)
-
-    input_voltages_static = dict()
-    input_voltages_active = dict()
-
-    # Split input signals into static and active signals
-    for net, voltage in input_voltages.items():
-        if isinstance(voltage, PieceWiseLinear):
-            input_voltages_active[net] = voltage
-        else:
-            assert isinstance(voltage, float), "Voltage needs to be a float or a piecewise linear function."
-            input_voltages_static[net] = voltage
-
-    logger.debug("Static input voltages: {}".format(sorted(list(input_voltages_static.keys()))))
-    logger.debug("Dynamic input voltages: {}".format(sorted(list(input_voltages_active.keys()))))
-
-    def create_voltage_source_statement(net: str, voltage: Union[float, PieceWiseLinear]) -> str:
+        ground_net: str = "GND",
+        simulation_title: str = "<UNTITLED SIMULATION>",
+        initial_node_voltages: Dict[str, float] = None,
+        set_initial_voltages_for_outputs: bool = True
+    ):
         """
-        Create a SPICE statement for a voltage source driving the 'net' with a voltage.
-        The voltage can be either a static value or a `PieceWiseLinear` function.
+        :param simulator:
+        :param cell_name: Name of the cell.
+        :param cell_ports: List of all pins in the order they appear in the SPICE subcircuit.
+        :param input_voltages: Values for driving input pins with a voltage source.
+        :param input_currents: Values for driving input pins with a current source.
+        :param output_load_capacitances: 
+        :param setup_statements: ngspice statements such as 'include' or 'lib'
+        :param ground_net: Name of the ground net.
+        :param simulation_title: Descriptive title of the simulation.
+        :param initial_node_voltages: Optionally provide initial node voltages here.
+        :param set_initial_voltages_for_outputs: Enable initial node voltage hints for output pins
+
         """
-        if isinstance(voltage, PieceWiseLinear):
-            return f"V{net} {net} {ground_net} PWL({voltage.to_spice_pwl_string()}) DC=0"
-        elif isinstance(voltage, float):
-            return f"V{net} {net} {ground_net} {voltage}"
-        else:
-            assert False, "`voltage` must be either a float or {}".format(PieceWiseLinear)
+        assert isinstance(simulator, Simulator)
+        self.simulator = simulator
+        self.cell_name = cell_name
+        self.cell_ports = cell_ports
+        self.input_voltages = input_voltages
+        self.input_currents = input_currents
+        self.initial_node_voltages = initial_node_voltages if initial_node_voltages else dict()
+        self.simulation_title = simulation_title
+        self.ground_net = ground_net
+        self.temperature = 25
+        self.output_load_capacitances = output_load_capacitances
+        self.setup_statements = setup_statements
+        self.set_initial_voltages_for_outputs = set_initial_voltages_for_outputs 
+        missing_sources = set(cell_ports) - {ground_net} - input_voltages.keys() - input_currents.keys() - output_load_capacitances.keys()
+        if missing_sources:
+            logger.warning(f"missing sources for input pins: {missing_sources}")
+            assert False
 
-    # Create SPICE description of the input voltage sources.
-    active_signal_source_statements = "\n".join(
-        (
-            create_voltage_source_statement(net, wave)
-            for net, wave in input_voltages_active.items()
-        )
-    )
+        self._init_simulation()
 
-    # Static inputs.
-    static_signal_source_statements = "\n".join(
-        (
-            create_voltage_source_statement(net, voltage)
-            for net, voltage in input_voltages_static.items()
-        )
-    )
+    def _initial_voltages(self) -> Dict[str, float]:
+        initial_voltages = dict()
+        for net, v in self.input_voltages.items():
+            if isinstance(v, PieceWiseLinear):
+                initial_voltages[net] = v(0)
+            else:
+                initial_voltages[net] = v
+                
+        # Set default value of outputs.
+        if self.set_initial_voltages_for_outputs:
+            for net in self.output_load_capacitances.keys():
+                initial_voltages[net] = 0.0
 
-    # Load capacitance statements.
-    if output_load_capacitances is None:
-        output_load_capacitances = dict()
-    else:
-        assert isinstance(output_load_capacitances, dict)
-    load_capacitance_statements = "\n".join(
-        (
-            f"Cload_{net} {net} {ground_net} {load}"
-            for net, load in output_load_capacitances.items()
-        )
-    )
+        for net, v in self.initial_node_voltages.items():
+            initial_voltages[net] = v
+            
+        return initial_voltages
+        
+    def _initial_currents(self) -> Dict[str, float]:
+        initial_currents = dict()
+        for net, v in self.input_currents.items():
+            if isinstance(v, PieceWiseLinear):
+                initial_currents[net] = v(0)
+            else:
+                initial_currents[net] = v
+        return initial_currents
+        
 
-    # Initial node voltages.
-    initial_conditions = initial_voltages
+    def _default_circuit(self) -> str:
+        """
+        Create SPICE netlist of this simulation setup.
+        """
 
-    # Calculate initial conditions for all sources.
-    for net, voltage in input_voltages.items():
-        if isinstance(voltage, PieceWiseLinear):
-            initial_conditions[net] = voltage(0)
-        else:
-            assert isinstance(voltage, float)
-            initial_conditions[net] = voltage
+        # Create a list of include files.
+        setup_statements_string = ""
+        if self.setup_statements is not None:
+            # Load include files.
+            setup_statements_string = "\n".join(self.setup_statements)
 
-    # Format breakpoint statements.
-    breakpoint_statements = '\n'.join(breakpoint_statements)
+        # If the ground net is not called GND, then it must be connected to GND or 0.
+        # This seems to be a must for SPICE simulators.
+        # See: https://codeberg.org/librecell/lctime/issues/12#issuecomment-2173526
+        ground_connection = ""
+        if self.ground_net not in ["GND", "gnd", "0"]:
+            logger.debug(f"Connect ground net `{self.ground_net}` to simulators ground `0`.")
+            ground_connection = f"* Connect ground net to GND\n" \
+            f"vgnd {self.ground_net} 0 0"
 
-    # Generate output definitions for voltages.
-    output_voltage_defs = " ".join((f"v({v})" for v in output_voltages))
+        # Load capacitance statements.
+        load_capacitance_statements = ""
+        if self.output_load_capacitances is not None:
+            assert isinstance(self.output_load_capacitances, dict)
+            load_capacitance_statements = "\n".join(
+                (
+                    f"Cload_{net} {net} {self.ground_net} {load}"
+                    for net, load in self.output_load_capacitances.items()
+                )
+            )
 
-    # Can measure currents only through sources.
-    # Check that specified output currents match with specified voltage sources.
-    for current in output_currents:
-        if current not in input_voltages:
-            msg = "Can measure currents only through voltage sources. " \
-                  f"'{current}' does not correspond to a source."
-            logger.error(msg)
-            assert False, msg
+        # Generate SPICE statements of input sources.
+        signal_source_statements = ""
+        signal_source_statements += _generate_input_voltage_statements(self.ground_net, self.input_voltages)
+        signal_source_statements += "\n"
+        signal_source_statements += _generate_input_current_statements(self.ground_net, self.input_currents)
 
-    # Generate output definitions for currents.
-    output_current_defs = " ".join((f"i(v{source})" for source in output_currents))
+        sim_netlist = f"""* librecell {__name__}
+.title {self.simulation_title}
 
-    # Create ngspice simulation script.
-    sim_netlist = f"""* librecell {__name__}
-.title {simulation_title}
+.control
+* Exit on error with return value 1
+pre_set strict_errorhandling
+.endc
 
-.option TEMP={temperature}
+.option TEMP={self.temperature}
+
+{self._params_initial_counditions()}
 
 {setup_statements_string}
 
-Xcircuit_under_test {" ".join(cell_ports)} {cell_name}
+{ground_connection}
 
 * Output load capacitances.
 {load_capacitance_statements}
 
-* Static input and supply voltages.
-{static_signal_source_statements}
-Vgnd {ground_net} 0 0
+* Input and supply sources.
+{signal_source_statements}
 
-* Active input signals (clock & data_in).
-{active_signal_source_statements}
+Xcircuit_under_test {" ".join(self.cell_ports)} {self.cell_name}
 
-* Initial conditions.
-* Also all voltages of DC sources must be here if they are needed to compute the initial conditions.
-.ic {" ".join((f"v({net})={v}" for net, v in initial_conditions.items()))}
-
-.control 
-*option reltol=1e-5
-*option abstol=1e-15
-
-set filetype=ascii
-set wr_vecnames
-
-* Breakpoints
-{breakpoint_statements}
-
-* Transient simulation, use initial conditions.
-tran {time_step} {max_simulation_time} uic
-* Write selected signals to the output file.
-wrdata {simulation_output_file} {output_voltage_defs} {output_current_defs} 
-* Exit ngspice.
-exit
-.endc
+{self._initial_conditions_stmts()}
 
 .end
 """
+        return sim_netlist
 
-    # Dump simulation script to the file.
-    logger.debug(f"Write simulation netlist: {simulation_file}")
-    if os.path.exists(simulation_file):
-        logger.debug("Simulation file already exists: {}".format(simulation_file))
-    open(simulation_file, "w").write(sim_netlist)
+    def _initial_conditions_stmts(self):
+        # TODO
+        # Also all voltages of DC sources must be here if they are needed to compute the initial conditions.
 
-    # Start ngspice.
-    logger.debug("Run simulation.")
-    stdout, stderr = run_simulation(simulation_file)
+        initial_voltages = [
+            f"v({net})={{ic_{net.lower()}}}"
+            for net, _ in self._initial_voltages().items()
+        ]
+        initial_currents = [] # TODO
+        # initial_currents = [
+        #     f"i(V{net})={{ic_i_{net.lower()}}}"
+        #     for net, _ in self._initial_currents().items()
+        # ]
+        ics = initial_voltages + initial_currents
 
-    # Retrieve data.
-    logger.debug("Load simulation output.")
-    sim_data = np.loadtxt(simulation_output_file, skiprows=1)
+        return f'.ic {" ".join(ics)}'
 
-    if sim_data.ndim != 2:
-        logger.error("Simulation failed. No data was written to the output file.")
-        if debug:
-            logger.error(f"ngspice: {stderr}")
-        assert False, "Simulation failed. No data was written to the output file."
+    def _params_initial_counditions(self):
+        """
+        Define variables (parameters) for the values of initial conditions. 
+        """
+        params = []
 
-    # Extract data from the numpy array.
-    time = sim_data[:, 0]
-    index = 1
+        for net, v in self._initial_voltages().items():
+            params.append(f".param ic_{net.lower()}={v}")
 
-    # Put voltages into a dict.
-    voltages = dict()
-    for v_out in output_voltages:
-        voltages[v_out] = sim_data[:, index]
-        index = index + 2
+        for net, i in self._initial_currents().items():
+            params.append(f".param ic_i_{net.lower()}={i}")
 
-    # Put currents into a dict.
-    currents = dict()
-    for i_out in output_currents:
-        currents[i_out] = sim_data[:, index]
-        index = index + 2
+        return "\n".join(params)
 
-    return time, voltages, currents
+    def _init_simulation(self):
+        logger.debug(self._default_circuit())
+        #self.simulator.remove_circuit() # Remove any existing circuit.
+        self.simulator.load_circuit(self._default_circuit())
 
+    def set_temperature(self, temp: float):
+        self.temperature = temp
+        self.simulator.cmd(f"option TEMP={temp}")
 
-class NgSpiceInteractive:
+    def set_breakpoint(self, breakpoint: str):
+        assert breakpoint.startswith("stop")
+        self.simulator.cmd(breakpoint.lower())
+
+    # TODO remove
+    # def delete_all_breakpoints(self):
+    #     """
+    #     Delete breakpoints.
+    #     """
+    #     self.simulator.drop_stdout()
+
+    #     # Ask for current breakpoints.
+    #     self.simulator.cmd("status")
+
+    #     nums = [] # Breakpoint numbers to be deleted.
+        
+    #     read_timeout = 0.1
+    #     # Get current breakpoints.
+    #     while True:
+    #         line = self.simulator.readline(timeout=read_timeout)
+    #         read_timeout = 0.001 # Use shorter timeout after the first line.
+    #         if line is None:
+    #             break
+    #         # Parse response.
+    #         parts = line.split() # Split at whitespace
+    #         if len(parts) > 1 and parts[1] == "stop":
+    #             num = int(parts[0])
+    #             nums.append(num)
+
+    #     logger.info(f"num breakpoints: {len(nums)}")
+    #     for num in nums:
+    #         self.simulator.cmd(f"delete {num}")
+
+    def set_capacitance(self, name: str, value: float):
+        name = name.lower()
+        assert name.startswith("c"), "capacitor name must start with C"
+        self.simulator.cmd(f"alter {name} = {value}")
+        
+    def set_capacitor_voltage(self, name: str, value: float):
+        name = name.lower()
+        assert name.startswith("c"), "capacitor name must start with C"
+        self.simulator.cmd(f"alter {name} ic = {value}")
+
+    def set_resistance(self, name: str, value: float):
+        name = name.lower()
+        assert name.startswith("r"), "resistor name must start with R"
+        self.simulator.cmd(f"alter {name} = {value}")
+
+    def set_source_dc(self, name: str, value: float):
+        name = name.lower()
+        assert name.startswith("v") or name.startswith("i"), "source name must start with i or v"
+        self.simulator.cmd(f"alter {name} dc = {value}")
+
+    def set_source_pwl(self, name: str, pwl: PieceWiseLinear):
+        name = name.lower()
+        assert name.startswith("v") or name.startswith("i"), "source name must start with i or v"
+        assert isinstance(pwl, PieceWiseLinear)
+        self.simulator.cmd(f"alter {name} pwl = [ {pwl.to_spice_pwl_string()} ]")
+
+    def set_source(self, name: str, source: Union[float, PieceWiseLinear]):
+        if isinstance(source, PieceWiseLinear):
+            self.set_source_dc(name, 0.0)
+            self.set_source_pwl(name, source)
+        else:
+            self.set_source_dc(name, source)
+
+    def set_initial_voltage(self, net: str, value: float):
+        assert isinstance(value, float) or isinstance(value, int)
+        self.simulator.cmd(f"alterparam ic_{net.lower()}={value}")
+
+    def set_initial_current(self, component: str, value: float):
+        assert isinstance(value, float) or isinstance(value, int)
+        self.simulator.cmd(f"alterparam ic_i_{component.lower()}={value}")
+
+    def tran(self, t_step: float, t_stop: float, t_start=None,
+            output_voltages: List[str] = [], 
+            output_currents: List[str] = [],
+             ) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+        """
+        Run transient simulation.
+
+        Return number of datapoints.
+        """
+        return self.simulator.tran(
+            t_step=t_step, t_stop=t_stop, t_start=t_start,
+            output_voltages=output_voltages, output_currents=output_currents
+        )
+
+    def reset(self):
+        """
+        Reset parameters, clear all breakpoints.
+        """
+        self.simulator.reset()
+        self.simulator.cmd("delete all") # Delete all breakpoints.
+        self.simulator.cmd("destroy all") # Remove previous datasets.
+
+def _generate_input_voltage_statements(ground_net: str, input_voltages: Dict[str, Union[float, PieceWiseLinear]]) -> str:
+    # Generate SPICE statements for input voltages.
+    source_statements = []
+    for net, wave in input_voltages.items():
+        assert isinstance(wave, float) or isinstance(wave, PieceWiseLinear)
+        source_statements.extend([
+            __create_voltage_source_statement(ground_net, f"{net}", wave), # Ideal voltage source
+        ])
+    return "\n".join(source_statements)
+
+def _generate_input_current_statements(ground_net: str, input_currents: Dict[str, Union[float, PieceWiseLinear]]) -> str:
+    # Generate SPICE statements for input currents.
+    source_statements = []
+    for net, wave in input_currents.items():
+        assert isinstance(wave, float) or isinstance(wave, PieceWiseLinear)
+        source_statements.extend([
+            __create_current_source_statement(ground_net, f"{net}", wave), # Ideal current source
+        ])
+    return "\n".join(source_statements)
+
+def __create_voltage_source_statement(ground_net: str, net: str, voltage: Union[float, PieceWiseLinear]) -> str:
     """
-    Interface to ngspice as a subprocess.
+    Create a SPICE statement for a voltage source driving the 'net' with a voltage.
+    The voltage can be either a static value or a `PieceWiseLinear` function.
+    """
+    if isinstance(voltage, PieceWiseLinear):
+        return f"V{net} {net} {ground_net} PWL({voltage.to_spice_pwl_string()}) DC=0"
+    elif isinstance(voltage, float):
+        return f"V{net} {net} {ground_net} {voltage}"
+    else:
+        assert False, "`voltage` must be either a float or {}".format(PieceWiseLinear)
+
+def __create_current_source_statement(ground_net: str, net: str, current: Union[float, PieceWiseLinear]) -> str:
+    """
+    Create a SPICE statement for a current source driving the 'net' with a current.
+    The current can be either a static value or a `PieceWiseLinear` function.
+    """
+    if isinstance(current, PieceWiseLinear):
+        return f"I{net} {ground_net} {net} PWL({current.to_spice_pwl_string()}) DC=0"
+    elif isinstance(current, float):
+        return f"I{net} {ground_net} {net} {current}"
+    else:
+        assert False, "`current` must be either a float or {}".format(PieceWiseLinear)
+
+class Simulator:
+    """
+    Abstract interface of SPICE circuit simulators.
     """
 
-    def __init__(self,
-                 ngspice_executable: str = None,
-                 logger: logging.Logger = None):
-        if logger is None:
-            logger = logging.getLogger(__name__)
-        self.logger = logger
-        self.ngspice_cmd = 'ngspice' if ngspice_executable is None else ngspice_executable
-        self.ngspice_args = ['-p']
-        "Run ngspice in interactive pipe mode."
+    def __init__(self):
+        pass
+
+    def name(self) -> str:
+        """
+        Get name of the simulator.
+        """
+        raise NotImplemented()
+
+    def version_string(self) -> str:
+        """
+        Get version string of the simulator.
+        """
+        raise NotImplemented()
+
+    def source(self, file: str):
+        """
+        Load a netlist from a file.
+        """
+        raise NotImplemented()
+
+    def reset(self):
+        raise NotImplemented()
+
+    def tran(self, t_step, t_stop, t_start=None,
+            output_voltages: List[str] = [], 
+            output_currents: List[str] = [],
+             ) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+        """
+
+        :param t_step:
+        :param t_stop:
+        :param t_start:
+        :param output_voltages: Names of voltages which should be measured and returned
+        :param output_currents:
+        :return: A tuple of `(time, voltages, currents)`. Voltages and currents are stored in a dict by their name.
+        """
+        raise NotImplemented()
+
+    def remove_circuit(self):
+        """
+        Remove current circuit.
+        """
+        raise NotImplemented()
+
+    def load_circuit(self, circuit: str):
+        """
+        Load a circuit over stdin.
+        :param circuit:
+        :return:
+        """
+        raise NotImplemented()
+
+class SimulatorSubprocess(Simulator):
+
+    def __init__(self, executable: str, args: List[str] = []):
+        self.executable = executable
+        self.args = args
 
         self.proc: subprocess.Popen[str] = None
-        "ngspice process handle."
+        "process handle."
 
         self._from_stdout = queue.Queue()
         self._from_stderr = queue.Queue()
@@ -291,17 +439,14 @@ class NgSpiceInteractive:
         self._stdout_reader_thread = None
         self._stderr_reader_thread = None
 
-    def stop(self):
-        if self.proc:
-            self.proc.kill()
-            self.proc = None
-
-    def start(self):
-        self.proc = subprocess.Popen(['ngspice', '-p'],
-                                     stdin=subprocess.PIPE,
-                                     stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE,
-                                     universal_newlines=True)
+    def _start(self):
+        self.proc = subprocess.Popen(
+            [self.executable] + self.args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True
+        )
 
         def read_stdout():
             while self.proc:
@@ -335,7 +480,12 @@ class NgSpiceInteractive:
         self._stdout_reader_thread.start()
         self._stderr_reader_thread.start()
 
-    def readline(self, timeout: Optional[int] = 1) -> str:
+    def _stop(self):
+        if self.proc:
+            self.proc.kill()
+            self.proc = None
+
+    def readline(self, timeout: Optional[int] = 0.1) -> str:
         try:
             return self._from_stdout.get(block=True, timeout=timeout)
         except queue.Empty:
@@ -355,9 +505,13 @@ class NgSpiceInteractive:
         while not self._from_stdout.empty():
             self._from_stdout.get_nowait()
 
-    def readline_err(self) -> str:
+    def readline_err(self, timeout: float = 0.1) -> str:
+        """
+        Read stderr.
+        Returns `None` if there's nothing on stderr within the timeout.
+        """
         try:
-            return self._from_stderr.get(block=True, timeout=1)
+            return self._from_stderr.get(block=True, timeout=timeout)
         except queue.Empty:
             return None
 
@@ -367,10 +521,243 @@ class NgSpiceInteractive:
     def _flush(self):
         self.proc.stdin.flush()
 
+def test_ngspice_file_based():
+    import math
+
+    sim = NgSpiceFileBased()
+
+    vdd = 1
+    vcap_init = 0
+    sim.load_circuit(f"""
+V1 vout 0 {vdd}
+R1 vout vcap 1000
+C1 vcap 0 1e-6
+
+.ic v(vcap)={vcap_init}
+""")
+
+    for _ in range(3): # Do simulation multiple times to check if 'reset' works.
+        t_stop = 1
+        time, voltages, currents = sim.tran(
+                    t_step=1e-4, t_stop=t_stop,
+                    output_voltages=['vcap', 'vout'],
+                    output_currents=['v1']
+                )
+
+        assert abs(time[-1] - t_stop) < 1e-6
+        assert np.all(np.isclose(voltages['vout'], vdd))
+        assert abs(voltages['vcap'][0] - vcap_init) < 1e-3
+        assert abs(voltages['vcap'][-1] - vdd) < 1e-3
+
+        sim.reset()
+
+class NgSpiceFileBased(SimulatorSubprocess):
+    """
+    Interface to non-interactive ngspice.
+    Writes the simulation script into a file, calls ngspice, then reads the results.
+    """
+
+    def __init__(self,
+                 ngspice_executable: str = None,
+                 workdir: str = None,
+                 logger: logging.Logger = None):
+        self.logger = logger
+        if logger is None:
+            self.logger = logging.getLogger(__name__)
+        executable = 'ngspice' if ngspice_executable is None else ngspice_executable
+
+        super().__init__(executable, ["-p"])
+
+        self._workdir = workdir
+        if workdir is None:
+            self._workdir = tempfile.mkdtemp(prefix="lctime")
+
+        self._commands = []
+        self._circuit: str = ""
+
+    def name(self) -> str:
+        return "ngspice-file-based"
+
+    def version_string(self) -> str:
+        """
+        Get ngspice version string.
+        Returns something like "ngspice-39" or "ngspice-44+".
+        Raises an exception if ngspice executable cannot be found.
+        """
+
+        output = subprocess.check_output([self.executable, "--version"]).decode("utf-8")
+        lines = output.split("\n")
+
+        for l in lines:
+            if "ngspice-" in l:
+                parts = l.split()
+                if len(parts) > 2:
+                    return parts[1]
+
+        return "ngspice-unknown"
+
+    def __exit__(self, *args):
+        pass
+
+    def __enter__(self):
+        return self
+    
     def cmd(self, cmd: str):
+        self._commands.append(cmd)
+
+    def source(self, file: str):
+        """
+        Load a netlist.
+        """
+        self.cmd(f"source {file}")
+
+    def reset(self):
+        #self._commands.clear()
+        def take_cmd(c: str) -> bool:
+            return c.startswith("alter")
+        self._commands = [c for c in self._commands if take_cmd(c)]
+        self.cmd('reset')
+        
+    def remove_circuit(self):
+        self._commands = []
+        self._circuit = ""
+    
+    def load_circuit(self, circuit: str):
+        self._commands = []
+        self._circuit = circuit
+
+    def _write_sim_file(self, path: str):
+
+        control = "\n".join(self._commands)
+        
+
+        spice_script = f"""
+.title lctime simulation
+
+{self._circuit}
+
+.control
+{control}
+.endc
+
+.end
+        """
+
+        with open(path, "w") as f:
+            f.write(spice_script)
+
+    def _run_simulation(self, output_voltages: List[str], output_currents: List[str]):
+        simfile = os.path.join(self._workdir, "simulation.sp")
+        sim_output_file = os.path.join(self._workdir, "simulation_out.txt")
+        
+        output_voltage_stmts = " ".join(f"v({v})" for v in output_voltages)
+        output_current_stmts = " ".join(f"i({v})" for v in output_currents)
+        
+        self.cmd("set filetype=ascii")
+        self.cmd("set wr_vecnames") # Enable output of vector names in the first line
+        self.cmd(f"wrdata {sim_output_file} {output_voltage_stmts} {output_current_stmts}")
+        self.cmd("exit")
+
+        self._write_sim_file(simfile)
+
+        result = subprocess.run(
+            [self.executable, simfile],
+            capture_output=True
+        )
+
+        if result.returncode != 0:
+            raise Exception(f"ngspice failed: {result.stderr}")
+        
+    def _get_data(self, output_voltages: List[str] = [], output_currents: List[str] = []):
+        sim_output_file = os.path.join(self._workdir, "simulation_out.txt")
+        #data = np.genfromtxt(sim_output_file, skip_header=1, ndmin=2)
+        data = np.loadtxt(sim_output_file, skiprows=1, ndmin=2)
+
+        time = data[:,0]
+
+        # Extract signals (strip away time)
+        data = data[:,1::2]
+        voltages = data[:, :len(output_voltages)].T
+        currents = data[:, len(output_voltages):].T
+        assert len(currents) == len(output_currents), "mismatch in number of data columns"
+        
+        voltages = {name: v for name, v in  zip(output_voltages, voltages)}
+        currents = {name: i for name, i in  zip(output_currents, currents)}
+
+        return time, voltages, currents
+
+    def tran(self,
+            t_step: float,
+            t_stop: float, 
+            output_voltages: List[str] = [], 
+            output_currents: List[str] = [],
+            t_start: float=None,
+            uic: str = ""
+            ) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+
+        self.cmd(f'tran {t_step} {t_stop} {uic}')
+        self._run_simulation(output_voltages, output_currents)
+        
+        return self._get_data(output_voltages, output_currents)
+
+class NgSpiceInteractive(SimulatorSubprocess):
+    """
+    Interface to ngspice as an interactive subprocess.
+    """
+
+    def __init__(self,
+                 ngspice_executable: str = None,
+                 logger: logging.Logger = None):
+        self.logger = logger
+        if logger is None:
+            self.logger = logging.getLogger(__name__)
+        executable = 'ngspice' if ngspice_executable is None else ngspice_executable
+
+        super().__init__(executable, ["-p"])
+
+        self._circuit_is_loaded = False
+
+    def name(self) -> str:
+        return "ngspice-interactive"
+
+    def version_string(self) -> str:
+        """
+        Get ngspice version string.
+        Returns something like "ngspice-39" or "ngspice-44+".
+        Raises an exception if ngspice executable cannot be found.
+        """
+
+        output = subprocess.check_output([self.executable, "--version"]).decode("utf-8")
+        lines = output.split("\n")
+
+        for l in lines:
+            if "ngspice-" in l:
+                parts = l.split()
+                if len(parts) > 2:
+                    return parts[1]
+
+        return "ngspice-unknown"
+
+    def __reboot(self):
+        """
+        Restart ngspice process. Used as a workaraound for memory leaks in ngspice.
+        """
+        self._stop()
+        self._start();
+
+    def __exit__(self, *args):
+        self._stop()
+
+    def __enter__(self):
+        self._start()
+        return self
+
+    def cmd(self, cmd: str):
+        self.logger.debug(f"ngspice> {cmd}")
         self._write(cmd)
         self._write('\n')
         self._flush()
+        self.__check_err(0.001) # TODO remove?
 
     def source(self, file: str):
         """
@@ -381,7 +768,7 @@ class NgSpiceInteractive:
     def reset(self):
         self.cmd('reset')
 
-    def tran(self, t_step, t_stop, t_start=None, uic='') -> int:
+    def _tran(self, t_step, t_stop, t_start=None, uic='') -> int:
         """
 
         :param t_step:
@@ -403,9 +790,18 @@ class NgSpiceInteractive:
                 _, num_rows_str = line.split('=', 2)
                 num_rows = int(float(num_rows_str))
                 break
+            else:
+                logger.debug(f"ngspice: {line}")
 
         assert num_rows > 0
         return num_rows
+
+    def remove_circuit(self):
+        """
+        Remove current circuit.
+        """
+        self.cmd("remcirc")
+        self._circuit_is_loaded = False
 
     def load_circuit(self, circuit: str):
         """
@@ -413,6 +809,10 @@ class NgSpiceInteractive:
         :param circuit:
         :return:
         """
+        
+        if self._circuit_is_loaded:
+            self.remove_circuit()
+            
         lines = circuit.split('\n')
         for line in lines:
             line = line.strip()
@@ -421,8 +821,62 @@ class NgSpiceInteractive:
                 self._write(line)
                 self._write('\n')
                 self._flush()
+        self.__check_err(timeout=0)
 
-    def get_data(self, num_rows: int, voltages: List[str] = None, currents: List[str] = None) -> np.ndarray:
+        self._circuit_is_loaded = True
+
+    def tran(self,
+            t_step: float,
+            t_stop: float, 
+            output_voltages: List[str] = [], 
+            output_currents: List[str] = [],
+            t_start: float=None,
+            ) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+        num_rows = self._tran(t_step=t_step, t_stop=t_stop, t_start=t_start)
+        
+        return self._get_data(num_rows, output_voltages, output_currents)
+
+    def _get_data(self, 
+                 num_rows: int, 
+                 output_voltages: List[str] = [], 
+                 output_currents: List[str] = []
+             ) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+        """
+        Get data points.
+        :param num_rows: number of data points created by `self.tran()`
+        """
+
+        sim_data = self._get_data_raw(
+            num_rows, output_voltages, output_currents
+        )
+        
+        if sim_data.ndim != 2:
+            logger.error("Simulation failed. No data was written to the output file.")
+            if debug:
+                pass
+                # TODO logger.error(f"ngspice: {stderr}")
+            assert False, "Simulation failed. No data was written to the output file."
+
+        # Extract data from the numpy array.
+        time = sim_data[:, 0]
+        index = 1
+
+        # Put voltages into a dict.
+        voltages = dict()
+        for v_out in output_voltages:
+            voltages[v_out] = sim_data[:, index]
+            index = index + 1
+
+        # Put currents into a dict.
+        currents = dict()
+        for i_out in output_currents:
+            currents[i_out] = sim_data[:, index]
+            index = index + 1
+
+        return time, voltages, currents
+
+    def _get_data_raw(self, num_rows: int, voltages: List[str] = None, currents: List[str] = None) -> np.ndarray:
+        # TODO use wrdata into a pipe (os.mkfifo()).
         self.drop_stdout()
 
         signals = []
@@ -440,7 +894,7 @@ class NgSpiceInteractive:
         rows = []
         i = 0
         while True:
-            line = self.readline()
+            line = self.readline(timeout=1)
             assert line is not None
             if line.startswith(str(i)):
                 i = i + 1
@@ -455,240 +909,15 @@ class NgSpiceInteractive:
 
         return data
 
-
-def simulate_cell_v2(
-        cell_name: str,
-        cell_ports: List[str],
-        input_voltages: Dict[str, Union[PieceWiseLinear, float]],
-        initial_voltages: Dict[str, float],
-        breakpoint_statements: List[str],
-        output_voltages: List[str],
-        output_currents: List[str],
-        simulation_file: str,
-        simulation_output_file: str,
-        max_simulation_time: float,
-        simulation_title: str = "<UNTITLED SIMULATION>",
-        temperature: float = 25,
-        output_load_capacitances: Dict[str, float] = None,
-        time_step: float = 100.0e-12,
-        setup_statements: List[str] = None,
-        ground_net: str = 'GND',
-        debug: bool = False,
-) -> Tuple[np.ndarray, Dict[str, np.ndarray], Dict[str, np.ndarray]]:
-    """Simulate a circuit with given input signals and measure voltages and currents.
-
-    :param cell_name: Name of the cell to be characterized. Must match with the name used in netlist and liberty.
-    :param cell_ports: All circuit pins/ports in the same ordering as used in the SPICE circuit model.
-    :param input_voltages: Dictionary holding input voltages or waveforms per net.
-    :param initial_voltages: Additional initial voltages per net name at the beginning of the simulation.
-        By default initial voltages are derived from the input voltages. This is useful for specifying initial voltages of outputs.
-    :param breakpoint_statements: List of ngspice breakpoint statements.
-    :param output_voltages: List of voltages that should be in the output of this function.
-    :param output_currents: List of sources whose current should be in the output of this function.
-    :param simulation_file: Path to the SPICE file which will be generated.
-    :param simulation_output_file: Path of the simulation output data.
-    :param max_simulation_time: Maximal simulation time in seconds.
-    :param simulation_title: Title of the simulation that will be written into the simulation file.
-    :param temperature: Temperature of the simulation.
-    :param output_load_capacitances: A dict with (net, capacitance) pairs which defines the load capacitances attached to certain nets.
-    :param time_step: Simulation time step.
-    :param setup_statements: SPICE statements that are included at the beginning of the simulation.
-        This should be used for .INCLUDE and .LIB statements.
-    :param ground_net: The name of the ground net.
-    :param debug: Enable more verbose debugging output such as plots of the simulations.
-    :return: Returns tuple (time, Dict[net, voltage], Dict[source, current]).
-    The output voltages and currents correspond to the values specified in `output_voltages` and `output_currents`.
-    """
-
-    logger.debug(f"Simulate cell: {cell_name}")
-    logger.debug(f"Cell ports: {cell_ports}")
-    logger.debug(f"Initial voltages: {initial_voltages} [V]")
-    logger.debug(f"Ground net: {ground_net}")
-    logger.debug(f"Temperature: {temperature} C")
-    logger.debug(f"Max. simulation time: {max_simulation_time} s")
-
-    # Create a list of include files.
-    if setup_statements is None:
-        setup_statements = []
-
-    # Load include files.
-    setup_statements_string = "\n".join(setup_statements)
-
-    input_voltages_static = dict()
-    input_voltages_active = dict()
-
-    # Split input signals into static and active signals
-    for net, voltage in input_voltages.items():
-        if isinstance(voltage, PieceWiseLinear):
-            input_voltages_active[net] = voltage
-        else:
-            assert isinstance(voltage, float), "Voltage needs to be a float or a piecewise linear function."
-            input_voltages_static[net] = voltage
-
-    logger.debug("Static input voltages: {}".format(sorted(list(input_voltages_static.keys()))))
-    logger.debug("Dynamic input voltages: {}".format(sorted(list(input_voltages_active.keys()))))
-
-    def create_voltage_source_statement(net: str, voltage: Union[float, PieceWiseLinear]) -> str:
+    def __check_err(self, timeout: float = 0.1):
         """
-        Create a SPICE statement for a voltage source driving the 'net' with a voltage.
-        The voltage can be either a static value or a `PieceWiseLinear` function.
+        Raise an exception on an error.
         """
-        if isinstance(voltage, PieceWiseLinear):
-            return f"V{net} {net} {ground_net} PWL({voltage.to_spice_pwl_string()}) DC=0"
-        elif isinstance(voltage, float):
-            return f"V{net} {net} {ground_net} {voltage}"
-        else:
-            assert False, "`voltage` must be either a float or {}".format(PieceWiseLinear)
 
-    # Create SPICE description of the input voltage sources.
-    active_signal_source_statements = "\n".join(
-        (
-            create_voltage_source_statement(net, wave)
-            for net, wave in input_voltages_active.items()
-        )
-    )
+        while True:
+            err = self.readline_err(timeout=timeout)
+            if err is None:
+                break
+            if err.startswith("Error"):
+                raise Exception(f"ngspice error: {err}")
 
-    # Static inputs.
-    static_signal_source_statements = "\n".join(
-        (
-            create_voltage_source_statement(net, voltage)
-            for net, voltage in input_voltages_static.items()
-        )
-    )
-
-    # Load capacitance statements.
-    if output_load_capacitances is None:
-        output_load_capacitances = dict()
-    else:
-        assert isinstance(output_load_capacitances, dict)
-    load_capacitance_statements = "\n".join(
-        (
-            f"Cload_{net} {net} {ground_net} {load}"
-            for net, load in output_load_capacitances.items()
-        )
-    )
-
-    # Initial node voltages.
-    initial_conditions = initial_voltages
-
-    # Calculate initial conditions for all sources.
-    for net, voltage in input_voltages.items():
-        if isinstance(voltage, PieceWiseLinear):
-            initial_conditions[net] = voltage(0)
-        else:
-            assert isinstance(voltage, float)
-            initial_conditions[net] = voltage
-
-    # Format breakpoint statements.
-    breakpoint_statements = '\n'.join(breakpoint_statements)
-
-    # Generate output definitions for voltages.
-    output_voltage_defs = " ".join((f"v({v})" for v in output_voltages))
-
-    # Can measure currents only through sources.
-    # Check that specified output currents match with specified voltage sources.
-    for current in output_currents:
-        if current not in input_voltages:
-            msg = "Can measure currents only through voltage sources. " \
-                  f"'{current}' does not correspond to a source."
-            logger.error(msg)
-            assert False, msg
-
-    # Generate output definitions for currents.
-    output_current_defs = " ".join((f"i(v{source})" for source in output_currents))
-
-    # Create ngspice simulation script.
-    sim_netlist = f"""* librecell {__name__}
-.title {simulation_title}
-
-.option TEMP={temperature}
-
-{setup_statements_string}
-
-Xcircuit_under_test {" ".join(cell_ports)} {cell_name}
-
-* Output load capacitances.
-{load_capacitance_statements}
-
-* Static input and supply voltages.
-{static_signal_source_statements}
-Vgnd {ground_net} 0 0
-
-* Active input signals (clock & data_in).
-{active_signal_source_statements}
-
-* Initial conditions.
-* Also all voltages of DC sources must be here if they are needed to compute the initial conditions.
-.ic {" ".join((f"v({net})={v}" for net, v in initial_conditions.items()))}
-
-.control 
-*option reltol=1e-5
-*option abstol=1e-15
-
-set filetype=ascii
-set wr_vecnames
-
-* Breakpoints
-{breakpoint_statements}
-
-* Transient simulation, use initial conditions.
-* tran {time_step} {max_simulation_time} uic
-* Write selected signals to the output file.
-* wrdata {simulation_output_file} {output_voltage_defs} {output_current_defs} 
-* Exit ngspice.
-*exit
-.endc
-
-.end
-"""
-
-    # Dump simulation script to the file.
-    if debug:
-        logger.debug(f"Write simulation netlist: {simulation_file}")
-        if os.path.exists(simulation_file):
-            logger.debug("Simulation file already exists: {}".format(simulation_file))
-        open(simulation_file, "w").write(sim_netlist)
-
-    # Start ngspice.
-    logger.debug("Run simulation.")
-    # stdout, stderr = run_simulation(simulation_file)
-    ns = NgSpiceInteractive()
-    ns.start()
-
-    # ns.source(simulation_file)
-    ns.load_circuit(sim_netlist)
-    nrows = ns.tran(t_step=time_step, t_stop=max_simulation_time, uic='uic')
-    measure_currents_at = [f'v{c}' for c in output_currents]
-    sim_data = ns.get_data(num_rows=nrows, voltages=output_voltages, currents=measure_currents_at)
-    ns.cmd('quit')
-    ns.stop()
-
-    # # Retrieve data.
-    # logger.debug("Load simulation output.")
-    # sim_data = np.loadtxt(simulation_output_file, skiprows=1)
-
-    if sim_data.ndim != 2:
-        logger.error("Simulation failed. No data was written to the output file.")
-        if debug:
-            logger.error(f"ngspice: {stderr}")
-        assert False, "Simulation failed. No data was written to the output file."
-
-    # Extract data from the numpy array.
-
-    assert sim_data.shape[1] == 1 + len(output_voltages) + len(output_currents)
-    time = sim_data[:, 0]
-    index = 1
-
-    # Put voltages into a dict.
-    voltages = dict()
-    for v_out in output_voltages:
-        voltages[v_out] = sim_data[:, index]
-        index = index + 1
-
-    # Put currents into a dict.
-    currents = dict()
-    for i_out in output_currents:
-        currents[i_out] = sim_data[:, index]
-        index = index + 1
-
-    return time, voltages, currents

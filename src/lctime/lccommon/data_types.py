@@ -20,6 +20,7 @@ class Transistor:
 
     def __init__(self, channel_type: ChannelType,
                  source_net: str, gate_net: str, drain_net: str,
+                 body_net: str = None,
                  channel_width=None,
                  name: str = 'M?',
                  allow_flip_source_drain: bool = True
@@ -34,6 +35,7 @@ class Transistor:
         self.source_net = source_net
         self.gate_net = gate_net
         self.drain_net = drain_net
+        self.body_net = body_net
 
         self.channel_width = channel_width
 
@@ -70,5 +72,5 @@ class Transistor:
         return x.__key() == y.__key()
 
     def __repr__(self):
-        return "({}, {}, {})".format(self.source_net, self.gate_net, self.drain_net)
+        return "({}, {}, {}, body={})".format(self.source_net, self.gate_net, self.drain_net, self.body_net)
 

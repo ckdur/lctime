@@ -22,6 +22,9 @@ sp2bool --spice INVX1.pex.netlist
 echo TEST: Recognize AND2X1
 sp2bool --spice AND2X1.pex.netlist
 
+echo TEST: Recognize XOR2X1
+sp2bool --spice XOR2X1.pex.netlist
+
 # TODO: Include flip-flops & latches 
 
 echo TEST OK

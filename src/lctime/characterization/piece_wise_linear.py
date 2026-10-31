@@ -16,7 +16,7 @@ import itertools
 
 class PieceWiseLinear:
 
-    def __init__(self, x: Iterable, y: Iterable):
+    def __init__(self, x: Iterable, y: Iterable, unit_x: str = "s", unit_y: str = "V"):
         """
         Define a pice wise linear wave by x,y coordinates.
         :param x: x (time) coordinate
@@ -27,6 +27,9 @@ class PieceWiseLinear:
 
         self.x = np.array(x)
         self.y = np.array(y)
+
+        self.unit_x = unit_x
+        self.unit_y = unit_y
 
     def concatenate(self, other):
         # TODO: untested
@@ -141,8 +144,8 @@ class PieceWiseLinear:
         :return:
         """
         pwl_string = ' '.join((
-            f'{time:0.20e}s {voltage:0.20e}V'
-            for time, voltage in zip(self.x, self.y)
+            f'{time:0.20e}{self.unit_x} {value:0.20e}{self.unit_y}'
+            for time, value in zip(self.x, self.y)
         ))
         return pwl_string
     
@@ -159,7 +162,9 @@ class StepWave(PieceWiseLinear):
                  polarity: bool = True,
                  transition_time=0.0,
                  rise_threshold=0.5,
-                 fall_threshold=0.5):
+                 fall_threshold=0.5,
+                 unit_x: str = "s",
+                 unit_y: str = "V"):
         assert 0 <= rise_threshold <= 1
         assert 0 <= fall_threshold <= 1
         assert transition_time >= 0
@@ -176,7 +181,9 @@ class StepWave(PieceWiseLinear):
 
         super().__init__(
             x=[start, end],
-            y=y
+            y=y,
+            unit_x=unit_x,
+            unit_y=unit_y
         )
 
 

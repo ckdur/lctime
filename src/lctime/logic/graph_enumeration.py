@@ -65,13 +65,14 @@ def enum_graphs(max_path_len: int) -> List[Tuple[nx.Graph, Dict[Any, int]]]:
 
 
 def test_enumerate_graphs():
-    import matplotlib.pyplot as plt
     graphs = enum_graphs(3)
 
     print("Num graphs: ", len(graphs))
 
-    # for g, dist in graphs:
-    #     print(g)
-    #     nx.draw_networkx(g, with_labels=True)
-    #     plt.draw()
-    #     plt.show()
+    if False:
+        import matplotlib.pyplot as plt
+        for g, dist in graphs:
+            print(g)
+            nx.draw_networkx(g, with_labels=True)
+            plt.draw()
+            plt.show()

@@ -145,6 +145,14 @@ def simplify_with_assumption(assumption: boolalg.Boolean, formula: boolalg.Boole
 
     return f
 
+def test_simplify_with_assumption():
+
+    a, b, c = sympy.symbols("a b c")
+    f = a & b & c
+    assumption = a & b
+
+    s = simplify_with_assumption(assumption, f)
+    assert s == c
 
 def bool_equals(f1: boolalg.Boolean, f2: boolalg.Boolean) -> bool:
     """

@@ -1,5 +1,4 @@
-# Copyright (c) 2019 Thomas Kramer.
-# SPDX-FileCopyrightText: 2022 Thomas Kramer <code@tkramer.ch>
+# SPDX-FileCopyrightText: 2019-2023 Thomas Kramer <code@tkramer.ch>
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
@@ -161,18 +160,30 @@ def extract_transistors(circuit: db.Circuit, force_lowercase: bool = False) -> T
     Returns a list of `Transistor`s and a list of the pin names including power pins.
     (List[Transistors], pin_names)
     """
-
     f = lambda s: s
     if force_lowercase:
         f = lambda s: s.lower()
 
-    if circuit is None:
-        all_circuits = [c.name for c in netlist.each_circuit()]
-        logger.error("No such circuit: {}".format(circuit_name))
-        logger.info(f"Circuits in netlist: {all_circuits}")
-        raise Exception("No such circuit: {}".format(circuit_name))
+    # Get pin names.
+    pins = [p.name() for p in circuit.each_pin()]
 
-    pins = [f(p.name()) for p in circuit.each_pin()]
+    # Workaround klayout issue in version 0.28.?.
+    # TODO: remove this somewhen.
+    # Split merged pin names. KLayout merges unconnected pins into a single pin???
+    # If pins are not connected inside the circuit we get a pin name like "A,Y,VDD,VSS".
+    recommend_klayout_ugprade = False
+    for pin in pins:
+        if "," in pin:
+            logger.warning(f"Pin name looks like it contains a bug from old KLayout versions: {pin}")
+            recommend_klayout_ugprade = True
+    if recommend_klayout_ugprade:
+        logger.warning("Consider upgrading the klayout package to 0.29 or later.")
+        # This is the workaround:
+        pins = [p for pin_names in pins for p in pin_names.split(",") ]
+
+    # Convert to lowercase if necessary.
+    if force_lowercase:
+        pins = [p.lower() for p in pins]
 
     def get_channel_type(s: str):
         """Determine the channel type of transistor from the model name.
@@ -185,12 +196,14 @@ def extract_transistors(circuit: db.Circuit, force_lowercase: bool = False) -> T
     id_gate_4 = mos4.terminal_id('G')
     id_source_4 = mos4.terminal_id('S')
     id_drain_4 = mos4.terminal_id('D')
+    id_body_4 = mos4.terminal_id('B')
 
     transistors_klayout = [
         Transistor(get_channel_type(d.device_class().name),
                    f(d.net_for_terminal(id_source_4).name),
                    f(d.net_for_terminal(id_gate_4).name),
                    f(d.net_for_terminal(id_drain_4).name),
+                   body_net=f(d.net_for_terminal(id_body_4).name),
                    channel_width=d.parameter('W') * 1e-6,  # Convert into micrometers.
                    name=d.name
                    )
@@ -198,31 +211,6 @@ def extract_transistors(circuit: db.Circuit, force_lowercase: bool = False) -> T
         if isinstance(d.device_class(), db.DeviceClassMOS3Transistor)
            or isinstance(d.device_class(), db.DeviceClassMOS4Transistor)]
 
-    # with open(path) as f:
-    #     source = f.read()
-    #
-    #     ast = spice_parser.parse_spice(source)
-    #
-    #     match = [s for s in ast if s.name == subckt_name]
-    #
-    #     if len(match) < 1:
-    #         raise Exception("No valid subcircuit found in file with name '%s'." % subckt_name)
-    #
-    #     circuit = match[0]
-    #
-    #     # Get transistors
-    #     transistors = [
-    #         Transistor(get_channel_type(t.model_name), t.ns, t.ng, t.nd, channel_width=t.params['W'], name=t.name)
-    #         for t in circuit.content if type(t) is spice_parser.MOSFET
-    #     ]
-    #
-    #     for t in transistors_klayout:
-    #         print(t.channel_width)
-    #
-    #     for t in transistors:
-    #         print(t.channel_width)
-    #
-    #     return transistors, circuit.ports
 
     return transistors_klayout, set(pins)
 

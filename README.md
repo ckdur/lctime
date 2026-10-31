@@ -4,13 +4,13 @@ SPDX-FileCopyrightText: 2022 Thomas Kramer
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# LibreCell - Lib
+# lctime
 Characterization kit for CMOS cells.
 This Python package comes with a some stand-alone command-line tools:
 
 * Most notably `lctime` for *recognition* and *characterization* of combinational and sequential cells.
 * `sp2bool`: Recognition ('reverse engineering') of transistor networks. This is intended for analyzis and debugging.
-* `libertyviz`: Visualization of NDLM tables.
+* `libertyviz`: Visualization of NLDM tables.
 
 ## Getting started
 
@@ -138,5 +138,12 @@ For cells with *differential* inputs the `--diff` argument must be used to speci
 
 
 ## Debugging
+Options for increasing debugging information:
+* `--debug`: increase verbosity. Will also show the path to generated SPICE files.
+* `--debug-plots` plot the waveforms of all simulations to a file. Slow but sometimes useful.
+* Enable very verbose trace log: set the `DEBUG_LCTIME` environment variable to `yes`
 
-Enable very verbose trace log: set the `DEBUG_LCTIME` environment variable to `yes`
+## Other open source cell characterization tools
+
+* [libretto](https://github.com/snishizawa/libretto)
+* [CharLib](https://github.com/stineje/CharLib)

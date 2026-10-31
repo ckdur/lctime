@@ -1,21 +1,21 @@
-# SPDX-FileCopyrightText: 2022 Thomas Kramer
+# SPDX-FileCopyrightText: 2022-2024 Thomas Kramer
 #
 # SPDX-License-Identifier: CC0-1.0
 
 steps:
-    build:
+    test:
         #image: python:3.8-bullseye # For local debuggin: podman run -it --rm python:3.8-bullseye
-        image: debian
+        image: python
+        when:
+            - event: manual
+            - event: push
         commands:
-            - apt update
-            - apt install -y python3 python3-pip
+            #- apt update
             - python3 --version
             - pip3 --version
             - apt install -y cython3 ngspice 
             - apt install -y python3-numpy python3-scipy python3-matplotlib python3-networkx python3-sympy python3-joblib python3-z3 
             - apt install -y libjpeg-dev # Weird dependency.
-            - ./install.sh 
+            - python3 -m pip install .
             - ./run_tests.sh
 
-# Run CI only on master branch.
-branches: [ master ]

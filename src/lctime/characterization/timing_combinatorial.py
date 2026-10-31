@@ -14,7 +14,7 @@ import os
 
 from .util import *
 from .piece_wise_linear import *
-from .ngspice_subprocess import simulate_cell
+from .ngspice_subprocess import CellSimulation, NgSpiceInteractive
 from ..lccommon.net_util import get_subcircuit_ports
 
 import logging
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def characterize_comb_cell(
+        simulation: CellSimulation,
         input_pins: List[str],
         output_pin: str,
         related_pin: str,
@@ -35,10 +36,12 @@ def characterize_comb_cell(
 
         constant_inputs: Dict[str, bool] = dict(),
         initial_node_voltages: Dict[str, float] = None,
+        static_input_patterns: Optional[List[Dict[str, bool]]] = None
 
 ) -> Dict[str, np.ndarray]:
     """
-    Calculate the NDLM timing table of a cell for a given timing arc.
+    Calculate the NLDM timing table of a cell for a given timing arc.
+    :param simulation: simulation harness
     :param constant_inputs: A truth-assignment for input pins that are static. Used for tri-state enable pins.
     :param cell_conf: Parameters and configuration for the characterization.
     :param input_net_transition: Transition times of input signals in seconds.
@@ -48,11 +51,12 @@ def characterize_comb_cell(
     :param related_pin: The input pin of the timing arc.
     :param output_functions: A dict mapping output pin names to corresponding boolean functions.
     :param initial_conditions: Initial node voltages as a dict.
+    :param static_input_patterns: Use this assignments of the static input pins for characterization. Characterize for each assignment. If this is not supplied, characterization is run for all combinations.
 
-    :return: Returns the NDLM timing tables wrapped in a dict:
+    :return: Returns the NLDM timing tables wrapped in a dict:
     {'cell_rise': 2d-np.ndarray, 'cell_fall': 2d-np.ndarray, ... }
     """
-
+    assert isinstance(simulation, CellSimulation)
     assert isinstance(cell_conf, CellConfig)
     assert isinstance(cell_conf.global_conf, CharacterizationConfig)
     cfg = cell_conf.global_conf
@@ -62,13 +66,9 @@ def characterize_comb_cell(
     input_pins_non_inverted = [p for p in input_pins if p not in inputs_inverted]
     related_pin_inverted = cell_conf.complementary_pins.get(related_pin)
 
-    # Find ports of the SPICE netlist.
-    ports = get_subcircuit_ports(cell_conf.spice_netlist_file, cell_conf.cell_name)
-    logger.debug("Subcircuit ports: {}".format(", ".join(ports)))
-
     vdd = cfg.supply_voltage
 
-    # TODO
+    # TODO set reasonable upper bound for simulation time
     # Maximum simulation time.
     time_max = cfg.time_step * 1e5
 
@@ -86,15 +86,36 @@ def characterize_comb_cell(
     else:
         initial_node_voltages = initial_node_voltages.copy()
 
-    # Create a list of include files.
-    setup_statements = cfg.setup_statements + [f".include {cell_conf.spice_sim_file}"]
-
     # Get all input nets that are not toggled during a simulation run.
-    static_input_nets = [i for i in input_pins_non_inverted if i != related_pin]
-    # Get a list of all input combinations that will be used for measuring conditional timing arcs.
-    num_inputs = len(static_input_nets)
-    static_inputs = list(product(*([[0, 1]] * num_inputs)))
+    static_input_nets = [i for i in input_pins_non_inverted if i != related_pin and i not in constant_inputs]
 
+    if static_input_patterns is None:
+        static_input_patterns = [{}] # Add a pattern which does not constrain any input and therefore leads to all possible combinations.
+    else:
+        # Sanity test on input.
+        assert isinstance(static_input_patterns, List)
+        for pat in static_input_patterns:
+            for var in pat.keys():
+                assert var in static_input_nets, f"input name in static_input_patterns is not in the list of static inputs: {var}"
+
+    # Get a list of all input combinations that will be used for measuring conditional timing arcs.
+    # Generate all possible input combinations at static inputs.
+    static_inputs = []
+    for pattern in static_input_patterns:
+        assert isinstance(pattern, Dict)
+
+        possible_assignments = [] # List of possible assignemnts for each static input.
+        # For each static input, get the possible assignments allowed by this pattern.
+        for i in static_input_nets:
+            possible_assignment = [0, 1] # If the pattern does not specify an assignment, both 0 and 1 are possible.
+            if i in pattern:
+                possible_assignment = [1 if pattern[i] == True else 0]
+            possible_assignments.append(possible_assignment)
+
+        static_inputs.extend(
+            list(product(*possible_assignments))
+        )
+        
     # Get boolean function of output pin.
     assert output_pin in output_functions, \
         "Boolean function not defined for output pin '{}'".format(output_pin)
@@ -133,25 +154,18 @@ def characterize_comb_cell(
                 logger.debug("Simulation skipped for conditional arc (output does not toggle): {}".format(bool_inputs))
                 continue
 
-            # Get voltages at static inputs.
-            input_voltages = {net: cfg.supply_voltage * value for net, value in zip(static_input_nets, static_input)}
-            # Add supply voltage.
-            input_voltages[cell_conf.supply_net] = cfg.supply_voltage
-            # Add input voltages for inverted inputs of differential pairs.
-            for p in static_input_nets:
-                inv = cell_conf.complementary_pins.get(p)
-                if inv is not None:
-                    assert inv not in input_voltages
-                    # Add the inverted input voltage.
-                    input_voltages[inv] = cfg.supply_voltage - input_voltages[p]
-
-            # Add constant voltages (tri-state enable pin).
-            for pin, value in constant_inputs.items():
-                input_voltages[pin] = cfg.supply_voltage if value else 0.0
+            # Create DC values to be applied to the input pins.
+            input_voltages = _create_static_input_voltages(
+                cell_conf=cell_conf,
+                static_input_nets=static_input_nets,
+                static_input=static_input,
+                constant_inputs=constant_inputs,
+            )
 
             logger.debug("Static input voltages: {}".format(input_voltages))
 
             for input_rising in [True, False]:
+                simulation.reset() # Rewind the simulation.
 
                 # Simulation script file path.
                 file_name = f"lctime_combinational_" \
@@ -159,31 +173,11 @@ def characterize_comb_cell(
                             f"load={output_cap}" \
                             f"{''.join((f'{net}={v}' for net, v in input_voltages.items() if isinstance(v, float)))}_" \
                             f"{'rising' if input_rising else 'falling'}"
-                sim_file = os.path.join(cfg.workingdir, f"{file_name}.sp")
-
-                # Output file for simulation results.
-                sim_output_file = os.path.join(cfg.workingdir, f"{file_name}_output.txt")
-                # File for debug plot of the waveforms.
-                sim_plot_file = os.path.join(cfg.workingdir, f"{file_name}_plot.svg")
 
                 bool_inputs[related_pin] = input_rising
                 expected_output = output_function(**bool_inputs)
-                initial_output_voltage = 0 if expected_output else vdd
-
-                # # Get voltages at static inputs.
-                # input_voltages = {net: vdd * value for net, value in zip(static_input_nets, static_input)}
-                # # Add supply voltage.
-                # input_voltages[supply_net] = supply_voltage
-                #
-                # # Add input voltages for inverted inputs of differential pairs.
-                # for p in static_input_nets:
-                #     inv = complementary_pins.get(p)
-                #     if inv is not None:
-                #         assert inv not in input_voltages
-                #         # Add the inverted input voltage.
-                #         input_voltages[inv] = supply_voltage - input_voltages[p]
-                #
-                # logger.debug("Voltages at static inputs: {}".format(input_voltages))
+                initial_output_voltage = 0.0 if expected_output else vdd
+                initial_node_voltages[output_pin] = initial_output_voltage
 
                 # Get stimulus signal for related pin.
                 input_wave = StepWave(start_time=0, polarity=input_rising,
@@ -197,43 +191,62 @@ def characterize_comb_cell(
                     input_wave_inverted = vdd - input_wave
                     input_voltages[related_pin_inverted] = input_wave_inverted
 
-                    # Get the breakpoint condition.
-                if expected_output:
-                    breakpoint_statement = f"stop when v({output_pin}) > {vdd * 0.99}"
-                else:
-                    breakpoint_statement = f"stop when v({output_pin}) < {vdd * 0.01}"
-                breakpoint_statements = [breakpoint_statement]
 
-                initial_node_voltages[output_pin] = initial_output_voltage
+                # Set initial conditions
+                for net, value in input_voltages.items():
+                    if isinstance(value, float):
+                        simulation.set_initial_voltage(net, value)
+                    elif isinstance(value, PieceWiseLinear):
+                        simulation.set_initial_voltage(net, float(value(0)) )
+                        
+                # # Set initial node voltages.
+                # for pin, voltage in initial_node_voltages.items():
+                #     if pin == output_pin: # TODO
+                #         #simulation.set_capacitor_voltage(f"Cload_{pin}", voltage)
+                #         pass
+                #     simulation.set_initial_voltage(pin, float(voltage))
+                simulation.set_initial_voltage(output_pin, initial_output_voltage)
+
+                # Need to call `reset` after altering parameters (see ngspice user manual, section 13.5.5).
+                simulation.simulator.cmd("reset")
                 
-                simulation_title = f"Timing simulation for pin '{related_pin}', input_rising={input_rising}."
+                    
+                # Get the breakpoint condition.
+                if expected_output:
+                    simulation.set_breakpoint(f"stop when v({output_pin}) > {vdd * 0.99}")
+                else:
+                    simulation.set_breakpoint(f"stop when v({output_pin}) < {vdd * 0.01}")
 
-                time, voltages, currents = simulate_cell(
-                    cell_name=cell_conf.cell_name,
-                    cell_ports=ports,
-                    input_voltages=input_voltages,
-                    initial_voltages=initial_node_voltages,
-                    breakpoint_statements=breakpoint_statements,
+                # Set input voltages.
+                for net, value in input_voltages.items():
+                    src = f"V{net}"
+                    simulation.set_source(src, value)
+
+                # Set output load.
+                simulation.set_capacitance(f"Cload_{output_pin}", output_cap)
+
+                if cfg.debug:
+                    # Dump current simulation setup which is loaded in ngspice.
+                    simulation.simulator.cmd("listing")
+                    
+                # Run simulation
+                time, voltages, currents = simulation.tran(
+                    t_step=cfg.time_step, t_stop=time_max,
                     output_voltages=[related_pin, output_pin],
-                    output_currents=[cell_conf.supply_net],
-                    simulation_file=sim_file,
-                    simulation_output_file=sim_output_file,
-                    max_simulation_time=time_max,
-                    simulation_title=simulation_title,
-                    temperature=cfg.temperature,
-                    output_load_capacitances={output_pin: output_cap},
-                    time_step=cfg.time_step,
-                    setup_statements=setup_statements,
-                    ground_net=cell_conf.ground_net,
-                    debug=cfg.debug,
+                    output_currents=[f"V{cell_conf.supply_net}", f"V{related_pin}"],
                 )
-
+      
                 # Retrieve data.
-                supply_current = currents[cell_conf.supply_net]
+                supply_current = - currents[f"V{cell_conf.supply_net}"]
+                gate_current = - currents[f"V{related_pin}"]
+                
                 input_voltage = voltages[related_pin]
                 output_voltage = voltages[output_pin]
 
                 if cfg.debug_plots:
+                    # File for debug plot of the waveforms.
+                    sim_plot_file = os.path.join(cell_conf.debug_plot_dir, f"{file_name}_plot.svg")
+
                     logger.debug("Create plot of waveforms: {}".format(sim_plot_file))
                     import matplotlib
                     matplotlib.use('Agg')
@@ -249,9 +262,17 @@ def characterize_comb_cell(
 
                 # TODO: What unit does rise_power/fall_power have in liberty files???
                 # Is it really power or energy?
-                switching_power = np.mean(supply_current * vdd)
-                switching_energy = switching_power * (time[-1] - time[0])
+                dt = time[-1] - time[0]
+                assert dt > 0.
+                gate_energy = np.mean(gate_current * input_voltage) * dt
+                supply_energy = np.mean(supply_current * vdd) * dt
+                logger.debug(f"switching energy (supply): {supply_energy}")
+                logger.debug(f"switching energy (gate): {gate_energy}")
 
+                switching_energy = gate_energy + supply_energy
+                if switching_energy < 0:
+                    logger.warn("Negative switching energy: {switching_energy}")
+                
                 v_thresh = 0.5 * vdd
 
                 # Get input signal before switching and after.
@@ -267,9 +288,6 @@ def characterize_comb_cell(
                 # Because the input signals have been chosen that way.
                 assert output_a != output_b, "Supplied boolean function and simulation are inconsistent."
 
-                # Check if output signal toggles.
-                assert output_a != output_b, "Output did not toggle."
-
                 output_rising = output_b
 
                 # Normalize input/output such that both have a rising edge.
@@ -282,7 +300,7 @@ def characterize_comb_cell(
                 # Check if signals are already stabilized after one `period`.
                 # assert abs(input_voltage[0]) < 0.01, "Input signal not yet stable at start."
                 # assert abs(1 - input_voltage[-1]) < 0.01, "Input signal not yet stable at end."
-                if input_rising:
+                if output_rising:
                     output_threshold = cfg.trip_points.output_threshold_rise
                 else:
                     output_threshold = cfg.trip_points.output_threshold_fall
@@ -336,3 +354,47 @@ def characterize_comb_cell(
         'rise_power': rise_power,
         'fall_power': fall_power
     }
+
+
+def _create_static_input_voltages(
+        cell_conf: CellConfig, 
+        static_input_nets: List[str], 
+        static_input: List[float],
+        constant_inputs: Dict[str, bool]
+    ) -> Dict[str, Union[float, PieceWiseLinear]]:
+    """
+    For each cell input pin create either a DC voltage or a piece-wise linear
+    waveaform.
+    """
+    assert isinstance(cell_conf, CellConfig)
+    assert len(static_input_nets) == len(static_input)
+    assert isinstance(constant_inputs, dict)
+    cfg = cell_conf.global_conf
+    
+    # Get voltages at static inputs.
+    input_voltages = {net: cfg.supply_voltage * value for net, value in zip(static_input_nets, static_input)}
+    # Add supply voltage.
+    input_voltages[cell_conf.supply_net] = cfg.supply_voltage
+    
+    # Add nwell voltage
+    if cell_conf.nwell_pin is not None:
+        input_voltages[cell_conf.nwell_pin] = cfg.supply_voltage
+        
+    # Add pwell voltage
+    if cell_conf.pwell_pin is not None:
+        input_voltages[cell_conf.pwell_pin] = 0.0
+        
+    # Add input voltages for inverted inputs of differential pairs.
+    for p in static_input_nets:
+        inv = cell_conf.complementary_pins.get(p)
+        if inv is not None:
+            assert inv not in input_voltages
+            # Add the inverted input voltage.
+            input_voltages[inv] = cfg.supply_voltage - input_voltages[p]
+
+    # Add constant voltages (tri-state enable pin).
+    for pin, value in constant_inputs.items():
+        input_voltages[pin] = cfg.supply_voltage if value else 0.0
+
+    return input_voltages
+    

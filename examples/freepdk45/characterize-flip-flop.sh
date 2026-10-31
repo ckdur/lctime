@@ -6,7 +6,7 @@
 
 # Characterize the DFFSR flip-flop (with set and reset).
 
-NETLIST_DIR="../test_data/freepdk45/netlists_pex"
+NETLIST_DIR="../../test_data/freepdk45/netlists_pex"
 
 lctime --liberty template.lib \
     --analyze-cell-function \

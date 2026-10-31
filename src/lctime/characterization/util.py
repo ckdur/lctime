@@ -56,12 +56,7 @@ class CellConfig:
 
         self.spice_netlist_file: str = None
         """
-        Path to SPICE netlist containing the subcircuit of the cell.
-        """
-
-        self.spice_sim_file: str = None
-        """
-        Path to SPICE netlist containing the subcircuit of the cell, for simulation.
+        Path to SPICE netlist containing the subcircuit of the cell, included in the simulations.
         """
 
         self.spice_ports: List[str] = None
@@ -76,11 +71,20 @@ class CellConfig:
         self.workingdir: Optional[str] = None
         "Directory where simulation files are put. Best on a ram-disk."
 
+        self.debug_plot_dir: Optional[str] = None
+        "Directory for debug plots."
+
         self.ground_net: str = 'GND'
         "Name of the ground net."
 
         self.supply_net: str = 'VDD'
         "Name of the power supply net."
+
+        self.nwell_pin: str = None
+        "Name of the nwell pin, if it exists."
+
+        self.pwell_pin: str = None
+        "Name of the pwell pin, if it exists."
 
 
 class CharacterizationConfig:
@@ -171,6 +175,10 @@ class CharacterizationConfig:
         """
         Capacitance unit used in the liberty file.
         """
+        self.energy_unit: float = 1e-12 # [pJ]
+        """
+        Energy unit used in the liberty file.
+        """
 
     def get_units_from_liberty(self, library: Group):
         """
@@ -189,7 +197,7 @@ class CharacterizationConfig:
         #print("cap_unit_str: "+cap_unit_str)
         assert cap_unit_str.endswith('f'), "Capacitance unit string must end on 'f' for Farads."
         assert isinstance(cap_unit_str, str)
-        assert isinstance(cap_unit_factor, float)
+        assert isinstance(cap_unit_factor, float) or isinstance(cap_unit_factor, int)
         cap_unit_str = cap_unit_str.lower()
 
         time_unit_factor = float(time_unit_str[:-2])
