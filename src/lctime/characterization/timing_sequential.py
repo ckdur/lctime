@@ -1484,3 +1484,154 @@ def measure_clock_to_output_delay(
         input_voltages=static_input_voltages,
         include_slew=True,
     )
+
+
+def measure_async_to_output_delay(
+        simulation: CellSimulation,
+        cell_conf: CellConfig,
+        async_pin: str,
+        async_active_high: bool,
+        clock_pin: str,
+        clock_edge_polarity: bool,
+        data_in_pin: str,
+        load_value: bool,
+        data_out_pin: str,
+        rising_data_edge_out: bool,
+        async_transition_time: float,
+        output_load_capacitances: Dict[str, float],
+        static_input_voltages: Dict[str, float],
+        clock_pulse_width: float,
+) -> Tuple[float, float]:
+    """
+    Measure the delay and slew from the activating edge of an asynchronous clear/preset pin
+    to the output of a flip-flop.
+
+    First a clock pulse loads `load_value` from `data_in_pin` into the flip-flop while the
+    asynchronous pin is inactive. Then the asynchronous pin switches to its active level.
+
+    :param async_pin: Name of the asynchronous clear or preset pin ('related pin').
+    :param async_active_high: `True` if the pin is active on a high level.
+    :param clock_pin: Name of the clock pin.
+    :param clock_edge_polarity: `True` = flip-flop samples on the rising clock edge.
+    :param data_in_pin: Data pin used to load the initial state.
+    :param load_value: Logic value applied to `data_in_pin` while loading the initial state.
+    :param data_out_pin: Output pin where the delay is measured.
+    :param rising_data_edge_out: `True` if the output rises when the asynchronous pin becomes active.
+    :param async_transition_time: Transition time of the asynchronous pin.
+    :param output_load_capacitances: A dict with (net, capacitance) pairs.
+    :param static_input_voltages: Voltages of the other input pins (asynchronous pins must be inactive here).
+    :param clock_pulse_width: Width of the clock pulse used to load the state. Must be long enough to sample.
+    :return: (delay, slew). Both are `Inf` if the output does not switch.
+    """
+    assert isinstance(simulation, CellSimulation)
+    cfg = cell_conf.global_conf
+    trip_points = cfg.trip_points
+    supply_voltage = cfg.supply_voltage
+
+    simulation.reset()
+
+    clock_transition_time = 10e-12
+    period = max(4 * clock_pulse_width, 4 * async_transition_time, 1e-9)
+
+    # Load the initial state with one clock pulse. The clock stays inactive afterwards.
+    clock_wave = PulseWave(
+        start_time=period,
+        duration=clock_pulse_width,
+        polarity=clock_edge_polarity,
+        rise_time=clock_transition_time,
+        fall_time=clock_transition_time,
+        rise_threshold=trip_points.input_threshold_rise,
+        fall_threshold=trip_points.input_threshold_fall
+    )
+
+    # Then activate the asynchronous pin.
+    t_async_edge = 3 * period + clock_pulse_width
+    async_wave = StepWave(
+        start_time=t_async_edge,
+        polarity=async_active_high,
+        transition_time=async_transition_time,
+        rise_threshold=trip_points.input_threshold_rise,
+        fall_threshold=trip_points.input_threshold_fall
+    )
+
+    input_voltages = static_input_voltages.copy()
+    input_voltages.update({
+        cell_conf.supply_net: supply_voltage,
+        clock_pin: clock_wave * supply_voltage,
+        data_in_pin: supply_voltage if load_value else 0.0,
+        async_pin: async_wave * supply_voltage,
+    })
+    if cell_conf.nwell_pin is not None:
+        input_voltages[cell_conf.nwell_pin] = supply_voltage
+    if cell_conf.pwell_pin is not None:
+        input_voltages[cell_conf.pwell_pin] = 0.0
+
+    # Initial output voltage: value before the asynchronous edge.
+    simulation.set_initial_voltage(data_out_pin, 0.0 if rising_data_edge_out else supply_voltage)
+    simulation.simulator.cmd("reset")
+
+    # Stop once the output is clearly at the other rail.
+    if rising_data_edge_out:
+        threshold = 1 - 0.1 * (1 - trip_points.output_threshold_rise)
+    else:
+        threshold = 0.1 * trip_points.output_threshold_fall
+    cmp = '>' if rising_data_edge_out else '<'
+    simulation.set_breakpoint(f"stop when v({data_out_pin}) {cmp} {supply_voltage * threshold} "
+                              f"when time > {t_async_edge}")
+
+    for net, value in input_voltages.items():
+        simulation.set_source(f"V{net}", value)
+    for pin, cap in output_load_capacitances.items():
+        simulation.set_capacitance(f"Cload_{pin}", cap)
+
+    time_step = max(cfg.time_step, min(clock_transition_time, async_transition_time) / 128)
+    simulation_end = t_async_edge + max(4 * period, 1e-7)
+
+    time, voltages, currents = simulation.tran(
+        t_step=time_step, t_stop=simulation_end,
+        output_voltages=[async_pin, clock_pin, data_out_pin],
+        output_currents=[],
+    )
+
+    async_voltage = voltages[async_pin] / supply_voltage
+    output_voltage = voltages[data_out_pin] / supply_voltage
+
+    if cfg.debug_plots:
+        file_name = f"lctime_async_to_output_delay_{async_pin}_{data_out_pin}"
+        sim_plot_file = os.path.join(cell_conf.workingdir, f"{file_name}_plot.svg")
+        logger.debug("Create plot of waveforms: {}".format(sim_plot_file))
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        plt.close()
+        plt.title("Asynchronous pin to output delay")
+        plt.plot(time, voltages[clock_pin], label='clock')
+        plt.plot(time, voltages[async_pin], label='async')
+        plt.plot(time, voltages[data_out_pin], label='data_out')
+        plt.legend()
+        plt.savefig(sim_plot_file)
+        plt.close()
+
+    # Cut away the initialization (state loading).
+    start_index = np.arange(len(time))[time > t_async_edge - period / 2][0]
+    time = time[start_index:]
+    async_voltage = async_voltage[start_index:]
+    output_voltage = output_voltage[start_index:]
+
+    # Turn a falling output edge into a rising one.
+    if rising_data_edge_out:
+        output_threshold = trip_points.output_threshold_rise
+    else:
+        output_voltage = 1 - output_voltage
+        output_threshold = 1 - trip_points.output_threshold_fall
+
+    if output_voltage[0] < output_threshold < output_voltage[-1]:
+        delay = get_input_to_output_delay(time=time, input_signal=async_voltage,
+                                          output_signal=output_voltage, trip_points=trip_points)
+        slew = get_slew_time(time=time, voltage=output_voltage, trip_points=trip_points)
+    else:
+        logger.warning(f"Output {data_out_pin} does not switch after activating {async_pin}.")
+        delay = float('Inf')
+        slew = float('Inf')
+
+    return delay, slew

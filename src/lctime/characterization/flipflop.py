@@ -402,3 +402,154 @@ def characterize_flip_flop_output(
         # Attach timing group to output pin group.
         output_pin_group.groups.append(timing_group)
  
+
+    # Measure delays from asynchronous clear/preset pins to the outputs.
+    for async_type, condition in [('clear', clear_condition), ('preset', preset_condition)]:
+        if condition in (sympy.false, sympy.true):
+            # The flip-flop has no such pin.
+            continue
+        _characterize_async_arcs(
+            simulation,
+            new_library,
+            new_cell_group,
+            conf,
+            cell_type,
+            async_type,
+            condition,
+            clock_pin,
+            bool(clock_edge_polarity),
+            static_inputs_and_observer_outputs[0],
+            data_out_pins,
+            input_transition_times,
+            output_capacitances,
+            clock_pulse_width_guess,
+            cell_conf,
+        )
+
+
+def _characterize_async_arcs(
+    simulation: CellSimulation,
+    new_library: Group,
+    new_cell_group: Group,
+    conf: CharacterizationConfig,
+    cell_type: SingleEdgeDFF,
+    async_type: str,
+    condition: boolalg.Boolean,
+    clock_pin: str,
+    clock_edge_polarity: bool,
+    state_control: Tuple,
+    data_out_pins: List[sympy.Symbol],
+    input_transition_times: np.ndarray,
+    output_capacitances: np.ndarray,
+    clock_pulse_width: float,
+    cell_conf: CellConfig,
+):
+    """
+    Create `timing_type : clear` or `timing_type : preset` arcs from the asynchronous pin to the outputs.
+
+    :param async_type: 'clear' or 'preset'.
+    :param condition: Boolean condition which activates the asynchronous clear/preset.
+    :param state_control: An entry of `find_flipflop_state_control_and_observe_pins()`
+        used to load the opposite state before the asynchronous pin is activated.
+    """
+    async_signals = list(condition.atoms(sympy.Symbol))
+    if len(async_signals) != 1:
+        logger.warning(f"Skip {async_type} arcs: expected one pin in '{condition}'.")
+        return
+    async_signal = async_signals[0]
+    async_pin = str(async_signal)
+    async_active_high = bool(condition.subs({async_signal: True}))
+
+    # State forced by the asynchronous pin.
+    forced_state = async_type == 'preset'
+
+    # Load the opposite state through the data pin first.
+    data_in_pin, static_input_values, _observer_outputs, _when = state_control
+    data_in_symbol = sympy.Symbol(data_in_pin) if isinstance(data_in_pin, str) else data_in_pin
+    load_value = None
+    for v in [False, True]:
+        assignment = dict(static_input_values)
+        assignment[data_in_symbol] = v
+        if cell_type.next_state.subs(assignment) == sympy.sympify(not forced_state):
+            load_value = v
+    if load_value is None:
+        logger.warning(f"Skip {async_type} arcs: cannot load the opposite state through {data_in_pin}.")
+        return
+
+    # The asynchronous pin itself is driven by the measurement.
+    static_input_voltages = {
+        str(pin): value * conf.supply_voltage
+        for pin, value in static_input_values.items()
+        if pin != async_signal and pin != data_in_symbol
+    }
+
+    logger.info(f"Measure {async_type} delays from {async_pin} "
+                f"(active {'high' if async_active_high else 'low'}).")
+
+    for data_out_pin in data_out_pins:
+        data_out_pin_name = str(data_out_pin)
+        output_function = cell_type.outputs[data_out_pin].function
+
+        def output_value(state: bool):
+            assignment = dict(static_input_values)
+            assignment.update({cell_type.internal_state: state})
+            if cell_type.internal_state_n is not None:
+                assignment[cell_type.internal_state_n] = not state
+            return output_function.subs(assignment)
+
+        before = output_value(not forced_state)
+        after = output_value(forced_state)
+        if before not in (sympy.true, sympy.false) or after not in (sympy.true, sympy.false) or before == after:
+            logger.warning(f"Skip {async_type} arc to {data_out_pin_name}: output does not switch.")
+            continue
+        rising_out = bool(after)
+
+        def delay_f(transition_time, output_capacitance):
+            return seq.measure_async_to_output_delay(
+                simulation,
+                cell_conf,
+                async_pin=async_pin,
+                async_active_high=async_active_high,
+                clock_pin=clock_pin,
+                clock_edge_polarity=clock_edge_polarity,
+                data_in_pin=str(data_in_pin),
+                load_value=load_value,
+                data_out_pin=data_out_pin_name,
+                rising_data_edge_out=rising_out,
+                async_transition_time=transition_time,
+                output_load_capacitances={data_out_pin_name: output_capacitance},
+                static_input_voltages=static_input_voltages,
+                clock_pulse_width=max(2 * clock_pulse_width, 100e-12),
+            )
+
+        f_vec = np.vectorize(delay_f)
+        xx, yy = np.meshgrid(input_transition_times, output_capacitances)
+        delay, transition = f_vec(xx, yy)
+
+        # Rows: output load (index_1), columns: transition of the asynchronous pin (index_2).
+        index_1 = output_capacitances / conf.capacitance_unit
+        index_2 = input_transition_times / conf.time_unit
+        delay_template_table = liberty_util.create_delay_template_table(new_library, len(index_1), len(index_2))
+        delay_table_template_name = delay_template_table.args[0]
+
+        edge = 'rise' if rising_out else 'fall'
+        timing_tables = []
+        for table_name, values in [(f'cell_{edge}', delay), (f'{edge}_transition', transition)]:
+            table = Group(table_name, args=[delay_table_template_name])
+            table.set_array('index_1', index_1)
+            table.set_array('index_2', index_2)
+            table.set_array('values', values / conf.time_unit)
+            timing_tables.append(table)
+
+        # The output follows the direction of the pin edge for positive unate arcs.
+        timing_sense = 'positive_unate' if async_active_high == rising_out else 'negative_unate'
+        timing_group = Group(
+            'timing',
+            attributes=[
+                Attribute('related_pin', EscapedString(async_pin)),
+                Attribute('timing_sense', timing_sense),
+                Attribute('timing_type', async_type),
+            ],
+            groups=timing_tables
+        )
+        new_cell_group.get_group('pin', data_out_pin_name).groups.append(timing_group)
