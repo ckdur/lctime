@@ -1635,3 +1635,207 @@ def measure_async_to_output_delay(
         slew = float('Inf')
 
     return delay, slew
+
+
+def _simulate_async_release(
+        simulation: CellSimulation,
+        cell_conf: CellConfig,
+        async_pin: str,
+        async_active_high: bool,
+        clock_pin: str,
+        clock_edge_polarity: bool,
+        data_in_pin: str,
+        load_value: bool,
+        data_out_pin: str,
+        rising_data_edge_out: bool,
+        clock_transition_time: float,
+        async_transition_time: float,
+        release_offset: float,
+        window: float,
+        static_input_voltages: Dict[str, float],
+) -> Tuple[float, float]:
+    """
+    Hold the flip-flop in clear/preset, apply the active clock edge and release the asynchronous pin
+    `release_offset` seconds after the clock edge (negative: before the clock edge).
+
+    :param rising_data_edge_out: `True` if the output rises when the clock edge captures the data.
+    :param window: Largest absolute value of `release_offset` used by the caller.
+    :return: (clock-to-output delay, largest output excursion towards the captured value normalized to [0, 1]).
+        The delay is `Inf` if the output does not switch.
+    """
+    cfg = cell_conf.global_conf
+    trip_points = cfg.trip_points
+    supply_voltage = cfg.supply_voltage
+
+    simulation.reset()
+
+    t_clock_edge = window + 1e-9 + async_transition_time + clock_transition_time
+
+    # The asynchronous pin is active from the start and is released around the clock edge.
+    async_wave = StepWave(
+        start_time=t_clock_edge + release_offset,
+        polarity=not async_active_high,
+        transition_time=async_transition_time,
+        rise_threshold=trip_points.input_threshold_rise,
+        fall_threshold=trip_points.input_threshold_fall
+    )
+    clock_wave = StepWave(
+        start_time=t_clock_edge,
+        polarity=clock_edge_polarity,
+        transition_time=clock_transition_time,
+        rise_threshold=trip_points.input_threshold_rise,
+        fall_threshold=trip_points.input_threshold_fall
+    )
+
+    input_voltages = static_input_voltages.copy()
+    input_voltages.update({
+        cell_conf.supply_net: supply_voltage,
+        clock_pin: clock_wave * supply_voltage,
+        data_in_pin: supply_voltage if load_value else 0.0,
+        async_pin: async_wave * supply_voltage,
+    })
+    if cell_conf.nwell_pin is not None:
+        input_voltages[cell_conf.nwell_pin] = supply_voltage
+    if cell_conf.pwell_pin is not None:
+        input_voltages[cell_conf.pwell_pin] = 0.0
+
+    # The output starts at the value forced by the asynchronous pin.
+    simulation.set_initial_voltage(data_out_pin, 0.0 if rising_data_edge_out else supply_voltage)
+    simulation.simulator.cmd("reset")
+
+    # Stop once the output is clearly at the other rail.
+    if rising_data_edge_out:
+        threshold = 1 - 0.1 * (1 - trip_points.output_threshold_rise)
+    else:
+        threshold = 0.1 * trip_points.output_threshold_fall
+    cmp = '>' if rising_data_edge_out else '<'
+    simulation.set_breakpoint(f"stop when v({data_out_pin}) {cmp} {supply_voltage * threshold} "
+                              f"when time > {t_clock_edge}")
+
+    for net, value in input_voltages.items():
+        simulation.set_source(f"V{net}", value)
+    simulation.set_capacitance(f"Cload_{data_out_pin}", 0.0)
+
+    time_step = max(cfg.time_step, min(clock_transition_time, async_transition_time) / 128)
+    simulation_end = t_clock_edge + max(release_offset, 0) + async_transition_time + 5e-9
+
+    time, voltages, currents = simulation.tran(
+        t_step=time_step, t_stop=simulation_end,
+        output_voltages=[async_pin, clock_pin, data_out_pin],
+        output_currents=[],
+    )
+
+    clock_voltage = voltages[clock_pin] / supply_voltage
+    output_voltage = voltages[data_out_pin] / supply_voltage
+
+    # Only look at the interval around the clock edge.
+    start_index = np.arange(len(time))[time > t_clock_edge - window / 2 - clock_transition_time][0]
+    time = time[start_index:]
+    clock_voltage = clock_voltage[start_index:]
+    output_voltage = output_voltage[start_index:]
+
+    # Turn a falling output edge into a rising one.
+    if rising_data_edge_out:
+        output_threshold = trip_points.output_threshold_rise
+    else:
+        output_voltage = 1 - output_voltage
+        output_threshold = 1 - trip_points.output_threshold_fall
+
+    excursion = float(np.max(output_voltage[time >= t_clock_edge - clock_transition_time]))
+
+    if output_voltage[0] < output_threshold < output_voltage[-1]:
+        delay = get_input_to_output_delay(time=time, input_signal=clock_voltage,
+                                          output_signal=output_voltage, trip_points=trip_points)
+    else:
+        delay = float('Inf')
+
+    return delay, excursion
+
+
+def measure_async_recovery_removal(
+        simulation: CellSimulation,
+        cell_conf: CellConfig,
+        async_pin: str,
+        async_active_high: bool,
+        clock_pin: str,
+        clock_edge_polarity: bool,
+        data_in_pin: str,
+        load_value: bool,
+        data_out_pin: str,
+        rising_data_edge_out: bool,
+        clock_transition_time: float,
+        async_transition_time: float,
+        static_input_voltages: Dict[str, float],
+        max_removal_excursion: float = 0.1,
+        xtol: float = 1e-12,
+) -> Tuple[float, float]:
+    """
+    Find the recovery and removal times of an asynchronous clear/preset pin relative to the active clock edge.
+
+    Recovery: how long before the clock edge the asynchronous pin must be released such that
+    the clock edge still captures the data (clock-to-output push-out at most `max_pushout_time`).
+
+    Removal: how long after the clock edge the asynchronous pin must stay active such that
+    the clock edge is ignored (the output moves at most `max_removal_excursion` towards the data value).
+
+    :return: (recovery time, removal time) in seconds.
+    """
+    cfg = cell_conf.global_conf
+    window = 2e-9 + 2 * async_transition_time + 2 * clock_transition_time
+
+    def simulate(release_offset: float) -> Tuple[float, float]:
+        return _simulate_async_release(
+            simulation, cell_conf,
+            async_pin=async_pin,
+            async_active_high=async_active_high,
+            clock_pin=clock_pin,
+            clock_edge_polarity=clock_edge_polarity,
+            data_in_pin=data_in_pin,
+            load_value=load_value,
+            data_out_pin=data_out_pin,
+            rising_data_edge_out=rising_data_edge_out,
+            clock_transition_time=clock_transition_time,
+            async_transition_time=async_transition_time,
+            release_offset=release_offset,
+            window=window,
+            static_input_voltages=static_input_voltages,
+        )
+
+    def bisect(passes, passing: float, failing: float) -> float:
+        """ Find the boundary between a passing and a failing release offset. """
+        if not passes(passing):
+            logger.warning(f"Recovery/removal search: no passing release offset found at {passing} s.")
+            return passing
+        if passes(failing):
+            logger.warning(f"Recovery/removal search: no failing release offset found at {failing} s.")
+            return failing
+        while abs(failing - passing) > xtol:
+            mid = (passing + failing) / 2
+            if passes(mid):
+                passing = mid
+            else:
+                failing = mid
+        return passing
+
+    # Reference delay: asynchronous pin released long before the clock edge.
+    reference_delay, _ = simulate(-window)
+    if not math.isfinite(reference_delay):
+        logger.warning(f"Clock edge does not capture data after releasing {async_pin}. "
+                       f"Cannot measure recovery/removal.")
+        return float('Inf'), float('Inf')
+    max_delay = reference_delay + cfg.max_pushout_time
+    logger.debug(f"Recovery/removal: reference delay = {reference_delay}, max. delay = {max_delay}")
+
+    def recovery_passes(release_offset: float) -> bool:
+        delay, _ = simulate(release_offset)
+        return delay <= max_delay
+
+    def removal_passes(release_offset: float) -> bool:
+        _, excursion = simulate(release_offset)
+        return excursion <= max_removal_excursion
+
+    recovery = -bisect(recovery_passes, -window, window)
+    removal = bisect(removal_passes, window, -window)
+    logger.info(f"{async_pin}: recovery = {recovery} s, removal = {removal} s")
+
+    return recovery, removal

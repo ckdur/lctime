@@ -424,6 +424,7 @@ def characterize_flip_flop_output(
             output_capacitances,
             clock_pulse_width_guess,
             cell_conf,
+            related_pin_transition,
         )
 
 
@@ -443,9 +444,11 @@ def _characterize_async_arcs(
     output_capacitances: np.ndarray,
     clock_pulse_width: float,
     cell_conf: CellConfig,
+    related_pin_transition: np.ndarray,
 ):
     """
-    Create `timing_type : clear` or `timing_type : preset` arcs from the asynchronous pin to the outputs.
+    Create `timing_type : clear` or `timing_type : preset` arcs from the asynchronous pin to the outputs
+    and the recovery/removal constraints of the asynchronous pin relative to the clock.
 
     :param async_type: 'clear' or 'preset'.
     :param condition: Boolean condition which activates the asynchronous clear/preset.
@@ -486,6 +489,9 @@ def _characterize_async_arcs(
     logger.info(f"Measure {async_type} delays from {async_pin} "
                 f"(active {'high' if async_active_high else 'low'}).")
 
+    # Output used to observe the recovery/removal constraints.
+    constraint_output = None
+
     for data_out_pin in data_out_pins:
         data_out_pin_name = str(data_out_pin)
         output_function = cell_type.outputs[data_out_pin].function
@@ -503,6 +509,9 @@ def _characterize_async_arcs(
             logger.warning(f"Skip {async_type} arc to {data_out_pin_name}: output does not switch.")
             continue
         rising_out = bool(after)
+        if constraint_output is None:
+            # A capturing clock edge moves this output in the opposite direction.
+            constraint_output = (data_out_pin_name, not rising_out)
 
         def delay_f(transition_time, output_capacitance):
             return seq.measure_async_to_output_delay(
@@ -553,3 +562,57 @@ def _characterize_async_arcs(
             groups=timing_tables
         )
         new_cell_group.get_group('pin', data_out_pin_name).groups.append(timing_group)
+
+    if constraint_output is None:
+        logger.warning(f"Skip recovery/removal of {async_pin}: no output observes the state.")
+        return
+
+    # Recovery and removal of the asynchronous pin relative to the active clock edge.
+    constraint_out_pin, rising_capture = constraint_output
+
+    def recovery_removal_f(clock_transition_time, async_transition_time):
+        return seq.measure_async_recovery_removal(
+            simulation,
+            cell_conf,
+            async_pin=async_pin,
+            async_active_high=async_active_high,
+            clock_pin=clock_pin,
+            clock_edge_polarity=clock_edge_polarity,
+            data_in_pin=str(data_in_pin),
+            load_value=load_value,
+            data_out_pin=constraint_out_pin,
+            rising_data_edge_out=rising_capture,
+            clock_transition_time=clock_transition_time,
+            async_transition_time=async_transition_time,
+            static_input_voltages=static_input_voltages,
+        )
+
+    f_vec = np.vectorize(recovery_removal_f)
+    # Rows: clock transition (index_1), columns: transition of the asynchronous pin (index_2).
+    xx, yy = np.meshgrid(related_pin_transition, input_transition_times, indexing='ij')
+    recovery, removal = f_vec(xx, yy)
+
+    index_1 = related_pin_transition / conf.time_unit
+    index_2 = input_transition_times / conf.time_unit
+    clock_edge = 'rising' if clock_edge_polarity else 'falling'
+    # Releasing an active-low pin is a rising edge of the pin.
+    constraint_table_name = 'fall_constraint' if async_active_high else 'rise_constraint'
+
+    async_pin_group = new_cell_group.get_group('pin', async_pin)
+    for constraint_type, values in [('recovery', recovery), ('removal', removal)]:
+        template_table = liberty_util.create_constraint_template_table(
+            new_library, constraint_type, len(index_1), len(index_2)
+        )
+        table = Group(constraint_table_name, args=[template_table.args[0]])
+        table.set_array('index_1', index_1)
+        table.set_array('index_2', index_2)
+        table.set_array('values', values / conf.time_unit)
+
+        async_pin_group.groups.append(Group(
+            'timing',
+            attributes=[
+                Attribute('related_pin', EscapedString(clock_pin)),
+                Attribute('timing_type', f'{constraint_type}_{clock_edge}'),
+            ],
+            groups=[table]
+        ))
